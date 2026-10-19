@@ -1,11 +1,14 @@
 # bot.py
+import sqlite3
 import asyncio
 import re
 import logging
 import os
+import csv
+import io
+from datetime import datetime
 from dotenv import load_dotenv
 import aiomax
-# Импорт FSMStorage больше не нужен, используем обычный словарь
 
 # ============================================================
 # Загрузка конфигурации
@@ -28,8 +31,29 @@ ADMIN_ID = int(_admin_raw)
 
 bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 
+# --- Настройка базы данных SQLite ---
+# check_same_thread=False нужен, чтобы база работала в асинхронном коде
+conn = sqlite3.connect('leads.db', check_same_thread=False)
+cursor_db = conn.cursor()
+
+# Создаем таблицу, если ее еще нет
+cursor_db.execute('''
+    CREATE TABLE IF NOT EXISTS leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        user_id INTEGER,
+        phone TEXT,
+        housing TEXT,
+        rooms TEXT,
+        area TEXT,
+        repair_type TEXT,
+        timeline TEXT
+    )
+''')
+conn.commit()
+# ------------------------------------
+
 # Вместо проблемного FSMStorage используем обычный словарь
-# Структура: {user_id: {"state": "...", "data": {...}}}
 fsm_states = {}
 
 def get_user_state(user_id):
@@ -64,7 +88,6 @@ STATE_TIMELINE = "timeline"
 STATE_CONFIRM = "confirm"
 STATE_PHONE = "phone"
 
-
 # ============================================================
 # Клавиатура
 # ============================================================
@@ -80,7 +103,6 @@ def make_keyboard(buttons, per_row=2):
     if row:
         kb.row(*row)
     return kb
-
 
 # ============================================================
 # /start
@@ -103,7 +125,6 @@ async def cmd_start(ctx: aiomax.CommandContext):
     ], per_row=2)
     await ctx.reply(text, keyboard=kb)
 
-
 # ============================================================
 # Заглушки
 # ============================================================
@@ -112,11 +133,9 @@ async def cmd_start(ctx: aiomax.CommandContext):
 async def photos_stub(cb: aiomax.Callback):
     await cb.answer(text="Раздел в разработке. Скоро здесь появятся наши работы!")
 
-
 @bot.on_button_callback("reviews")
 async def reviews_stub(cb: aiomax.Callback):
     await cb.answer(text="Раздел в разработке. Скоро здесь появятся наши работы!")
-
 
 # ============================================================
 # Шаг 1: старт квиза
@@ -135,7 +154,6 @@ async def start_quiz(cb: aiomax.Callback):
         ("Другое", "housing_other"),
     ], per_row=2)
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
-
 
 # ============================================================
 # Шаг 1 → Шаг 2
@@ -170,7 +188,6 @@ async def step_housing(cb: aiomax.Callback):
     ], per_row=3)
     await cb.answer(text="Шаг 2. Сделать во всех комнатах или в отдельных?", keyboard=kb)
 
-
 # ============================================================
 # Шаг 2 → Шаг 3
 # ============================================================
@@ -202,7 +219,6 @@ async def step_rooms(cb: aiomax.Callback):
         keyboard=kb
     )
 
-
 # ============================================================
 # Шаг 3 (кнопка «Не знаю») → Шаг 4
 # ============================================================
@@ -222,7 +238,6 @@ async def step_area_unknown(cb: aiomax.Callback):
         ("Пока не знаю", "repair_unknown"),
     ], per_row=2)
     await cb.answer(text="Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
-
 
 # ============================================================
 # Шаг 4 → Шаг 5
@@ -252,7 +267,6 @@ async def step_repair(cb: aiomax.Callback):
         ("Пока не знаю", "timeline_unknown"),
     ], per_row=2)
     await cb.answer(text="Шаг 5. Когда планируете начинать ремонт?", keyboard=kb)
-
 
 # ============================================================
 # Шаг 5 → Сводка
@@ -291,7 +305,6 @@ async def step_timeline(cb: aiomax.Callback):
     ], per_row=2)
     await cb.answer(text=summary, keyboard=kb)
 
-
 # ============================================================
 # Подтверждение
 # ============================================================
@@ -308,7 +321,6 @@ async def confirm_yes(cb: aiomax.Callback):
         )
     )
 
-
 @bot.on_button_callback("confirm_edit")
 async def confirm_edit(cb: aiomax.Callback):
     user_id = cb.user.user_id
@@ -322,7 +334,6 @@ async def confirm_edit(cb: aiomax.Callback):
         ("Другое", "housing_other"),
     ], per_row=2)
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
-
 
 # ============================================================
 # Обработка текста (площадь и телефон)
@@ -378,6 +389,25 @@ async def handle_text(message: aiomax.Message):
                 f"🔨 Тип ремонта: {data.get('repair_type', '—')}\n"
                 f"📅 Сроки: {data.get('timeline', '—')}"
             )
+
+            # --- СОХРАНЯЕМ В БАЗУ ДАННЫХ ---
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor_db.execute('''
+                INSERT INTO leads (date, user_id, phone, housing, rooms, area, repair_type, timeline)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                current_time,
+                user_id,
+                data.get('phone', ''),
+                data.get('housing', ''),
+                data.get('rooms', ''),
+                data.get('area', ''),
+                data.get('repair_type', ''),
+                data.get('timeline', '')
+            ))
+            conn.commit()
+            # -------------------------------
+
             try:
                 await bot.send_message(admin_text, user_id=ADMIN_ID)
             except Exception as e:
@@ -401,19 +431,67 @@ async def handle_text(message: aiomax.Message):
 
 
 # ============================================================
+# КОМАНДА /export (Выгрузка заявок в Excel/CSV)
+# ============================================================
+
+@bot.on_command("export")
+async def export_leads(ctx: aiomax.CommandContext):
+    # Проверка: только для админа
+    if ctx.message.sender.user_id != ADMIN_ID:
+        await ctx.reply("У вас нет прав для этой команды.")
+        return
+
+    # Достаем заявки из БД
+    cursor_db.execute("SELECT date, phone, housing, rooms, area, repair_type, timeline FROM leads ORDER BY id DESC")
+    rows = cursor_db.fetchall()
+
+    if not rows:
+        await ctx.reply("База данных пуста. Заявок пока нет.")
+        return
+
+    # Формируем CSV файл в памяти
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    
+    # Заголовки
+    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Тип ремонта', 'Сроки'])
+    
+    # Данные
+    for row in rows:
+        writer.writerow(row)
+
+    # Кодируем в байты (utf-8-sig нужен для правильного открытия в Excel)
+    csv_bytes = output.getvalue().encode('utf-8-sig')
+    
+    # Создаем файловый объект в памяти для отправки
+    file_obj = io.BytesIO(csv_bytes)
+    file_obj.name = "leads_export.csv" # Имя файла
+
+    try:
+        # Отправляем документ
+        await ctx.reply_document(
+            document=file_obj,
+            caption="📊 Выгрузка всех заявок из базы данных"
+        )
+    except Exception as e:
+        await ctx.reply(f"Ошибка при отправке файла: {e}\nПопробуем отправить текстом.")
+        # Если файл не отправился, отправляем хотя бы текстом
+        text_export = "\n".join([f"{r[0]} | {r[1]} | {r[2]}" for r in rows])
+        await ctx.reply(text_export)
+
+# ============================================================
 # Запуск (асинхронный для Render + UptimeRobot)
 # ============================================================
 
-import asyncio
-from keep_alive import start_web_server  # Импортируем наш веб-сервер
+from keep_alive import start_web_server
 
 async def main():
     # 1. Запускаем веб-сервер в фоне (для UptimeRobot)
     asyncio.create_task(start_web_server())
     
-    # 2. Запускаем бота (используем start_polling, а не start)
+    # 2. Запускаем бота
     logging.info("Запуск бота...")
-    await bot.start_polling()  # <--- ИСПРАВЛЕНО
+    await bot.start_polling()
     
     # Закрываем сессию после остановки polling (если потребуется)
     await bot.close()
