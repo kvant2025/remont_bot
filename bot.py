@@ -468,10 +468,13 @@ async def export_leads(ctx: aiomax.CommandContext):
     file_obj.name = "leads_export.csv" # Имя файла
 
     try:
-        # Отправляем документ
-        await ctx.reply_document(
-            document=file_obj,
-            caption="📊 Выгрузка всех заявок из базы данных"
+        # 1. Загружаем файл на сервер MAX (обязательно указываем имя файла для BytesIO)
+        attachment = await bot.upload_file(file_obj, filename="leads_export.csv")
+        
+        # 2. Отправляем сообщение с вложением
+        await ctx.reply(
+            text="📊 Выгрузка всех заявок из базы данных",
+            attachments=attachment
         )
     except Exception as e:
         await ctx.reply(f"Ошибка при отправке файла: {e}\nПопробуем отправить текстом.")
