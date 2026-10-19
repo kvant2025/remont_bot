@@ -1,0 +1,4 @@
+.env
+.env.max
+__pycache__/
+*.pyc
