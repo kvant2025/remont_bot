@@ -149,16 +149,13 @@ async def contact_handler(cb: aiomax.Callback):
         "📞 **Связаться с исполнителем**\n\n"
         "Вы можете напрямую обсудить детали ремонта с нашим мастером:\n\n"
         "👤 **Имя:** Евгений\n"
-        f"📱 **Телефон:** [{phone_number}](tel:{phone_number})\n\n"
-        "Нажмите на номер, чтобы позвонить с телефона 👆\n"
+        f"📱 **Телефон:** {phone_number}\n\n"
+        "Нажмите на номер выше, чтобы позвонить с телефона 👆\n"
         "Или напишите нам прямо здесь, и мы ответим в течение 15 минут."
     )
     
-    kb = make_keyboard([
-        (f"📞 Позвонить {phone_number}", f"tel:{phone_number}"),
-    ], per_row=1)
-
-    await cb.answer(text=text, keyboard=kb)
+    # Отправляем сообщение БЕЗ кнопки, только с текстом
+    await cb.answer(text=text)
 
 # ============================================================
 # Отзывы (Автопоиск всех фото в папке)
@@ -478,7 +475,7 @@ async def handle_text(message: aiomax.Message):
     if state in button_states:
         await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇")
     elif state is None:
-        await message.reply("Напишите /start, чтобы начать 👇")
+        await message.reply("Нажмите /start, чтобы начать 👇")
 
 # ============================================================
 # КОМАНДА /export
