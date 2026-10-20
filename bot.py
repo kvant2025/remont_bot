@@ -143,15 +143,13 @@ async def cmd_start(ctx: aiomax.CommandContext):
 
 @bot.on_button_callback("contact")
 async def contact_handler(cb: aiomax.Callback):
-    phone_number = "+79991234567"  # <--- ВАШ НОМЕР ТЕЛЕФОНА
-    max_nickname = "evgeny_remont" # <--- ВАШ НИК В MAX (без @)
+    phone_number = "+79220392000"  # Ваш номер
     
     text = (
         "📞 **Связаться с исполнителем**\n\n"
-        "Вы можете напрямую обсудить детали ремонта с нашим прорабом:\n\n"
+        "Вы можете напрямую обсудить детали ремонта с нашим мастером:\n\n"
         "👤 **Имя:** Евгений\n"
-        f"📱 **Телефон:** [{phone_number}](tel:{phone_number})\n"
-        f"💬 **MAX:** [@{max_nickname}](https://max.ru/{max_nickname})\n\n"
+        f"📱 **Телефон:** [{phone_number}](tel:{phone_number})\n\n"
         "Нажмите на номер, чтобы позвонить с телефона 👆\n"
         "Или напишите нам прямо здесь, и мы ответим в течение 15 минут."
     )
