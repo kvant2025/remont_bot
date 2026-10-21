@@ -367,7 +367,7 @@ async def confirm_edit(cb: aiomax.Callback):
 # Шаг 6: Бюджет
 # ============================================================
 
-@bot.on_button_callback("budget_help")
+@bot.on_button_callback("help_price")
 async def budget_help_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
@@ -451,7 +451,7 @@ async def handle_text(message: aiomax.Message):
                 "Так мы сможем сразу предложить то, что подходит именно вам 👇"
             )
             kb = make_keyboard([
-                ("От чего зависит цена?", "budget_help"),
+                ("От чего зависит цена?", "help_price"),
                 ("до 15.000 ₽ / м²", "budget_15"),
                 ("15-20.000 ₽ / м²", "budget_20"),
                 ("20-25.000 ₽ / м²", "budget_25"),
