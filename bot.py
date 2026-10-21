@@ -6,6 +6,7 @@ import logging
 import os
 import csv
 import io
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 import aiomax
@@ -55,13 +56,21 @@ conn.commit()
 
 # --- FSM ---
 fsm_states = {}
+
+def update_user_activity(user_id):
+    """Обновляет время последней активности пользователя."""
+    if user_id not in fsm_states:
+        fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
+    else:
+        fsm_states[user_id]["last_active"] = time.time()
+
 def get_user_state(user_id): return fsm_states.get(user_id, {}).get("state", None)
 def set_user_state(user_id, state):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}}
+    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
     fsm_states[user_id]["state"] = state
 def get_user_data(user_id): return fsm_states.get(user_id, {}).get("data", {})
 def set_user_data(user_id, data):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}}
+    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
     fsm_states[user_id]["data"] = data
 def clear_user(user_id):
     if user_id in fsm_states: del fsm_states[user_id]
@@ -129,6 +138,7 @@ async def cmd_start(ctx: aiomax.CommandContext):
 @bot.on_button_callback("back_to_menu")
 async def back_to_menu_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     clear_user(user_id)
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
@@ -140,12 +150,16 @@ import random
 
 @bot.on_button_callback("useful_tips")
 async def useful_tips_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
     tip = random.choice(TEXTS_BANK)
     kb = make_keyboard([BTN_NEXT_TIP, BTN_BACK], per_row=1)
     await cb.answer(text=tip["text"], keyboard=kb)
 
 @bot.on_button_callback("next_tip")
 async def next_tip_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
     tip = random.choice(TEXTS_BANK)
     kb = make_keyboard([BTN_NEXT_TIP, BTN_BACK], per_row=1)
     await cb.answer(text=tip["text"], keyboard=kb)
@@ -156,6 +170,8 @@ async def next_tip_handler(cb: aiomax.Callback):
 
 @bot.on_button_callback("contact")
 async def contact_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
     phone_number = "+79220392000"
     text = (
         "📞 **Связаться с исполнителем**\n\n"
@@ -174,6 +190,8 @@ async def contact_handler(cb: aiomax.Callback):
 
 @bot.on_button_callback("reviews")
 async def reviews_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
     text = (
         "💬 **Отзывы и благодарственные письма**\n\n"
         "Мы гордимся нашей репутацией. Вот что пишут клиенты:\n\n"
@@ -203,6 +221,8 @@ async def reviews_handler(cb: aiomax.Callback):
 
 @bot.on_button_callback("portfolio")
 async def portfolio_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
     text = (
         "Показываем ремонты, которые мы сдали заказчикам за последние несколько дней 😊 как вам?\n\n"
         "Нажмите кнопку «Узнать стоимость» — посчитаем все индивидуально под вас, а еще промокод на скидку подарим 👇"
@@ -230,6 +250,7 @@ async def portfolio_handler(cb: aiomax.Callback):
 @bot.on_button_callback("start_quiz")
 async def start_quiz(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     set_user_state(user_id, STATE_HOUSING)
     set_user_data(user_id, {})
     kb = make_keyboard([
@@ -241,6 +262,7 @@ async def start_quiz(cb: aiomax.Callback):
 @bot.on_button_callback(lambda d: d.payload.startswith("housing_"))
 async def step_housing(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     mapping = {"housing_new": "Новостройка", "housing_secondary": "Вторичка", "housing_house": "Дом", "housing_other": "Другое"}
     value = mapping.get(cb.payload, "Другое")
     current = get_user_data(user_id)
@@ -257,6 +279,7 @@ async def step_housing(cb: aiomax.Callback):
 @bot.on_button_callback(lambda d: d.payload.startswith("rooms_"))
 async def step_rooms(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     mapping = {
         "rooms_all": "Во всех", "rooms_living": "Гостиная", "rooms_bedroom": "Спальня",
         "rooms_kids": "Детская", "rooms_kitchen": "Кухня", "rooms_hallway": "Коридор",
@@ -273,6 +296,7 @@ async def step_rooms(cb: aiomax.Callback):
 @bot.on_button_callback("area_unknown")
 async def step_area_unknown(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     current = get_user_data(user_id)
     current["area"] = "Не знаю"
     set_user_data(user_id, current)
@@ -286,6 +310,7 @@ async def step_area_unknown(cb: aiomax.Callback):
 @bot.on_button_callback(lambda d: d.payload.startswith("repair_"))
 async def step_repair(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     mapping = {"repair_capital": "Капитальный", "repair_cosmetic": "Косметический", "repair_design": "Дизайнерский", "repair_unknown": "Пока не знаю"}
     value = mapping.get(cb.payload, "Пока не знаю")
     current = get_user_data(user_id)
@@ -302,6 +327,7 @@ async def step_repair(cb: aiomax.Callback):
 @bot.on_button_callback(lambda d: d.payload.startswith("timeline_"))
 async def step_timeline(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     mapping = {"timeline_month": "Этот месяц", "timeline_1_2": "1-2 месяца", "timeline_3_4": "3-4 месяца", "timeline_5_6": "5-6 месяцев", "timeline_unknown": "Пока не знаю"}
     value = mapping.get(cb.payload, "Пока не знаю")
     current = get_user_data(user_id)
@@ -324,6 +350,7 @@ async def step_timeline(cb: aiomax.Callback):
 @bot.on_button_callback("confirm_yes")
 async def confirm_yes(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     set_user_state(user_id, STATE_PHONE)
     kb = make_keyboard([BTN_BACK], per_row=1)
     await cb.answer(
@@ -338,6 +365,7 @@ async def confirm_yes(cb: aiomax.Callback):
 @bot.on_button_callback("confirm_edit")
 async def confirm_edit(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     set_user_data(user_id, {})
     set_user_state(user_id, STATE_HOUSING)
     kb = make_keyboard([
@@ -352,6 +380,8 @@ async def confirm_edit(cb: aiomax.Callback):
 
 @bot.on_button_callback("budget_help")
 async def budget_help_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
     text = (
         "Ремонт, который мы делаем, можно разделить на следующие категории 👇\n\n"
         "🔹 15-20.000 ₽ (чистовой ремонт без излишеств: ровно, аккуратно, практично)\n\n"
@@ -378,6 +408,7 @@ async def budget_help_handler(cb: aiomax.Callback):
 @bot.on_message()
 async def handle_text(message: aiomax.Message):
     user_id = message.sender.user_id
+    update_user_activity(user_id)
     state = get_user_state(user_id)
     text = message.content if message.content else None
 
@@ -423,7 +454,7 @@ async def handle_text(message: aiomax.Message):
             set_user_state(user_id, STATE_BUDGET)
             
             text_budget = (
-                "Евгений, последний вопрос. Чтобы не тратить ваше время - "
+                "Последний вопрос. Чтобы не тратить ваше время - "
                 "уточните, какой у вас примерный бюджет на ремонт?\n\n"
                 "Так мы сможем сразу предложить то, что подходит именно вам 👇"
             )
@@ -458,6 +489,7 @@ async def handle_text(message: aiomax.Message):
 @bot.on_button_callback(lambda d: d.payload.startswith("budget_"))
 async def step_budget(cb: aiomax.Callback):
     user_id = cb.user.user_id
+    update_user_activity(user_id)
     
     mapping = {
         "budget_15": "до 15.000 ₽ / м²",
@@ -552,6 +584,40 @@ async def export_leads(ctx: aiomax.CommandContext):
         await ctx.reply(text_export)
 
 # ============================================================
+# Фоновая проверка неактивных клиентов (Дожим)
+# ============================================================
+
+async def check_inactive_users():
+    """Раз в минуту проверяет, кто застрял, и пишет им."""
+    while True:
+        await asyncio.sleep(60) # Проверяем каждую минуту
+        current_time = time.time()
+        
+        for user_id, data in list(fsm_states.items()):
+            state = data.get("state")
+            last_active = data.get("last_active", current_time)
+            
+            # Если клиент не в главном меню и молчит уже 15 минут (900 секунд)
+            if state is not None and (current_time - last_active) > 900:
+                
+                text = (
+                    "👋 Здравствуйте! Вы здесь?\n\n"
+                    "Я вижу, вы начали расчет, но отвлеклись. "
+                    "Если у вас остались вопросы по ремонту, просто напишите мне. "
+                    "Или давайте продолжим — это займет всего пару минут 👇"
+                )
+                
+                try:
+                    # Отправляем напоминание
+                    await bot.send_message(text, user_id=user_id)
+                    
+                    # Сбрасываем время активности, чтобы не напоминать снова каждую минуту
+                    fsm_states[user_id]["last_active"] = current_time
+                    
+                except Exception as e:
+                    print(f"Не удалось отправить напоминание {user_id}: {e}")
+
+# ============================================================
 # Запуск
 # ============================================================
 
@@ -559,6 +625,7 @@ from keep_alive import start_web_server
 
 async def main():
     asyncio.create_task(start_web_server())
+    asyncio.create_task(check_inactive_users()) # Запускаем таймер дожима
     logging.info("Запуск бота...")
     await bot.start_polling()
     await bot.close()
