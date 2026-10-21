@@ -138,7 +138,7 @@ async def cmd_start(ctx: aiomax.CommandContext):
     await ctx.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
-# Связаться с исполнителем
+# Связаться с исполнителем (кликабельный номер)
 # ============================================================
 
 @bot.on_button_callback("contact")
@@ -149,16 +149,15 @@ async def contact_handler(cb: aiomax.Callback):
         "📞 **Связаться с исполнителем**\n\n"
         "Вы можете напрямую обсудить детали ремонта с нашим мастером:\n\n"
         "👤 **Имя:** Евгений\n"
-        f"📱 **Телефон:** {phone_number}\n\n"
-        "Нажмите на номер выше, чтобы позвонить с телефона 👆\n"
+        f"📱 **Телефон:** [{phone_number}](tel:{phone_number})\n\n"
+        "Нажмите на номер, чтобы позвонить с телефона 👆\n"
         "Или напишите нам прямо здесь, и мы ответим в течение 15 минут."
     )
     
-    # Отправляем сообщение БЕЗ кнопки, только с текстом
     await cb.answer(text=text)
 
 # ============================================================
-# Отзывы (Автопоиск всех фото в папке)
+# Отзывы (Автопоиск фото в папке с помощью upload_image)
 # ============================================================
 
 @bot.on_button_callback("reviews")
@@ -175,30 +174,25 @@ async def reviews_handler(cb: aiomax.Callback):
     attachments = []
     
     if os.path.exists(folder_path):
-        # Сортируем файлы, чтобы они шли по порядку (0001, 0002...)
-        for filename in sorted(os.listdir(folder_path)):
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                file_path = os.path.join(folder_path, filename)
-                try:
-                    with open(file_path, 'rb') as f:
-                        file_bytes = f.read()
-                    
-                    file_obj = io.BytesIO(file_bytes)
-                    file_obj.name = filename
-                    
-                    attachment = await bot.upload_file(file_obj)
-                    attachments.append(attachment)
-                except Exception as e:
-                    print(f"Ошибка загрузки файла {filename}: {e}")
+        # Берем максимум 10 файлов, чтобы не превысить лимит MAX
+        files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
+        
+        for filename in files:
+            file_path = os.path.join(folder_path, filename)
+            try:
+                # ИСПОЛЬЗУЕМ upload_image для картинок
+                attachment = await bot.upload_image(file_path)
+                attachments.append(attachment)
+            except Exception as e:
+                print(f"Ошибка загрузки файла {filename}: {e}")
 
     if not attachments:
         await cb.answer(text=text + "\n\n*(Файлы писем временно недоступны)*")
     else:
-        # Отправляем сообщение с текстом и всеми прикрепленными фото
         await cb.answer(text=text, attachments=attachments)
 
 # ============================================================
-# Портфолио (Автопоиск всех фото в папке)
+# Портфолио (Автопоиск фото в папке с помощью upload_image)
 # ============================================================
 
 @bot.on_button_callback("portfolio")
@@ -212,18 +206,15 @@ async def portfolio_handler(cb: aiomax.Callback):
     attachments = []
     
     if os.path.exists(folder_path):
-        for filename in sorted(os.listdir(folder_path)):
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                file_path = os.path.join(folder_path, filename)
-                try:
-                    with open(file_path, 'rb') as f:
-                        file_bytes = f.read()
-                    file_obj = io.BytesIO(file_bytes)
-                    file_obj.name = filename
-                    attachment = await bot.upload_file(file_obj)
-                    attachments.append(attachment)
-                except Exception as e:
-                    print(f"Ошибка загрузки фото {filename}: {e}")
+        files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
+        
+        for filename in files:
+            file_path = os.path.join(folder_path, filename)
+            try:
+                attachment = await bot.upload_image(file_path)
+                attachments.append(attachment)
+            except Exception as e:
+                print(f"Ошибка загрузки фото {filename}: {e}")
 
     if not attachments:
         await cb.answer(text=text + "\n\n*(Фото временно недоступны)*")
