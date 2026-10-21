@@ -10,7 +10,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import aiomax
 
-# Импортируем наш банк текстов
+# Импортируем банк текстов
 from texts import TEXTS_BANK
 
 # ============================================================
@@ -34,7 +34,7 @@ ADMIN_ID = int(_admin_raw)
 
 bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 
-# --- База данных ---
+# --- База данных (добавили колонку budget) ---
 conn = sqlite3.connect('leads.db', check_same_thread=False)
 cursor_db = conn.cursor()
 cursor_db.execute('''
@@ -47,7 +47,8 @@ cursor_db.execute('''
         rooms TEXT,
         area TEXT,
         repair_type TEXT,
-        timeline TEXT
+        timeline TEXT,
+        budget TEXT
     )
 ''')
 conn.commit()
@@ -73,6 +74,7 @@ STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
 STATE_CONFIRM = "confirm"
 STATE_PHONE = "phone"
+STATE_BUDGET = "budget" # Новое состояние для бюджета
 
 # --- Клавиатура ---
 def make_keyboard(buttons, per_row=2):
@@ -104,7 +106,7 @@ WELCOME_KB = make_keyboard([
     ("📸 Портфолио", "portfolio"),
     ("💬 Отзывы", "reviews"),
     ("📞 Связаться", "contact"),
-    ("🔥 Полезные советы", "useful_tips"), # <--- Новая кнопка
+    ("🔥 Полезные советы", "useful_tips"),
 ], per_row=2)
 
 BTN_BACK = ("🏠 В главное меню", "back_to_menu")
@@ -132,37 +134,19 @@ async def back_to_menu_handler(cb: aiomax.Callback):
 # Банк текстов (Полезные советы)
 # ============================================================
 
-# Храним индекс текущего текста для каждого пользователя (или глобально)
-# Здесь мы просто будем брать случайный текст, чтобы было разнообразие
 import random
 
 @bot.on_button_callback("useful_tips")
 async def useful_tips_handler(cb: aiomax.Callback):
-    # Выбираем случайный текст из банка
     tip = random.choice(TEXTS_BANK)
-    
-    text = tip["text"]
-    
-    # Добавляем кнопки "Следующий совет" и "В меню"
-    kb = make_keyboard([
-        BTN_NEXT_TIP,
-        BTN_BACK
-    ], per_row=1)
-    
-    await cb.answer(text=text, keyboard=kb)
+    kb = make_keyboard([BTN_NEXT_TIP, BTN_BACK], per_row=1)
+    await cb.answer(text=tip["text"], keyboard=kb)
 
 @bot.on_button_callback("next_tip")
 async def next_tip_handler(cb: aiomax.Callback):
-    # Логика та же: берем следующий (или случайный) текст
     tip = random.choice(TEXTS_BANK)
-    text = tip["text"]
-    
-    kb = make_keyboard([
-        BTN_NEXT_TIP,
-        BTN_BACK
-    ], per_row=1)
-    
-    await cb.answer(text=text, keyboard=kb)
+    kb = make_keyboard([BTN_NEXT_TIP, BTN_BACK], per_row=1)
+    await cb.answer(text=tip["text"], keyboard=kb)
 
 # ============================================================
 # Связаться с исполнителем
@@ -195,22 +179,17 @@ async def reviews_handler(cb: aiomax.Callback):
         "Отдельное спасибо за помощь с выбором плитки!» — *Анна, ЖК «Светлый»*\n\n"
         "Выше вы можете посмотреть сканы благодарственных писем и отзывы."
     )
-    
     folder_path = os.path.join("media", "reviews")
     attachments = []
-    
     if os.path.exists(folder_path):
         files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
         for filename in files:
-            file_path = os.path.join(folder_path, filename)
             try:
-                attachment = await bot.upload_image(file_path)
+                attachment = await bot.upload_image(os.path.join(folder_path, filename))
                 attachments.append(attachment)
             except Exception as e:
                 print(f"Ошибка загрузки файла {filename}: {e}")
-
     kb = make_keyboard([BTN_BACK], per_row=1)
-
     if not attachments:
         await cb.answer(text=text + "\n\n*(Файлы писем временно недоступны)*", keyboard=kb)
     else:
@@ -226,25 +205,17 @@ async def portfolio_handler(cb: aiomax.Callback):
         "Показываем ремонты, которые мы сдали заказчикам за последние несколько дней 😊 как вам?\n\n"
         "Нажмите кнопку «Узнать стоимость» — посчитаем все индивидуально под вас, а еще промокод на скидку подарим 👇"
     )
-    
     folder_path = os.path.join("media", "portfolio")
     attachments = []
-    
     if os.path.exists(folder_path):
         files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
         for filename in files:
-            file_path = os.path.join(folder_path, filename)
             try:
-                attachment = await bot.upload_image(file_path)
+                attachment = await bot.upload_image(os.path.join(folder_path, filename))
                 attachments.append(attachment)
             except Exception as e:
                 print(f"Ошибка загрузки фото {filename}: {e}")
-
-    kb = make_keyboard([
-        ("✅ Узнать стоимость", "start_quiz"),
-        BTN_BACK
-    ], per_row=1)
-
+    kb = make_keyboard([("✅ Узнать стоимость", "start_quiz"), BTN_BACK], per_row=1)
     if not attachments:
         await cb.answer(text=text + "\n\n*(Фото временно недоступны)*", keyboard=kb)
     else:
@@ -260,11 +231,8 @@ async def start_quiz(cb: aiomax.Callback):
     set_user_state(user_id, STATE_HOUSING)
     set_user_data(user_id, {})
     kb = make_keyboard([
-        ("Новостройка", "housing_new"),
-        ("Вторичка", "housing_secondary"),
-        ("Дом", "housing_house"),
-        ("Другое", "housing_other"),
-        BTN_BACK
+        ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
+        ("Дом", "housing_house"), ("Другое", "housing_other"), BTN_BACK
     ], per_row=2)
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
 
@@ -278,16 +246,9 @@ async def step_housing(cb: aiomax.Callback):
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_ROOMS)
     kb = make_keyboard([
-        ("Во всех", "rooms_all"),
-        ("Гостиная", "rooms_living"),
-        ("Спальня", "rooms_bedroom"),
-        ("Детская", "rooms_kids"),
-        ("Кухня", "rooms_kitchen"),
-        ("Коридор", "rooms_hallway"),
-        ("Ванная/туалет", "rooms_bathroom"),
-        ("Балкон", "rooms_balcony"),
-        ("Другое", "rooms_other"),
-        BTN_BACK
+        ("Во всех", "rooms_all"), ("Гостиная", "rooms_living"), ("Спальня", "rooms_bedroom"),
+        ("Детская", "rooms_kids"), ("Кухня", "rooms_kitchen"), ("Коридор", "rooms_hallway"),
+        ("Ванная/туалет", "rooms_bathroom"), ("Балкон", "rooms_balcony"), ("Другое", "rooms_other"), BTN_BACK
     ], per_row=3)
     await cb.answer(text="Шаг 2. Сделать во всех комнатах или в отдельных?", keyboard=kb)
 
@@ -304,10 +265,7 @@ async def step_rooms(cb: aiomax.Callback):
     current["rooms"] = value
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_AREA)
-    kb = make_keyboard([
-        ("Не знаю", "area_unknown"),
-        BTN_BACK
-    ], per_row=1)
+    kb = make_keyboard([("Не знаю", "area_unknown"), BTN_BACK], per_row=1)
     await cb.answer(text="Шаг 3. Напишите общую площадь помещений в м² (примерно):", keyboard=kb)
 
 @bot.on_button_callback("area_unknown")
@@ -318,43 +276,31 @@ async def step_area_unknown(cb: aiomax.Callback):
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_REPAIR)
     kb = make_keyboard([
-        ("Капитальный", "repair_capital"),
-        ("Косметический", "repair_cosmetic"),
-        ("Дизайнерский", "repair_design"),
-        ("Пока не знаю", "repair_unknown"),
-        BTN_BACK
+        ("Капитальный", "repair_capital"), ("Косметический", "repair_cosmetic"),
+        ("Дизайнерский", "repair_design"), ("Пока не знаю", "repair_unknown"), BTN_BACK
     ], per_row=2)
     await cb.answer(text="Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
 
 @bot.on_button_callback(lambda d: d.payload.startswith("repair_"))
 async def step_repair(cb: aiomax.Callback):
     user_id = cb.user.user_id
-    mapping = {
-        "repair_capital": "Капитальный", "repair_cosmetic": "Косметический",
-        "repair_design": "Дизайнерский", "repair_unknown": "Пока не знаю",
-    }
+    mapping = {"repair_capital": "Капитальный", "repair_cosmetic": "Косметический", "repair_design": "Дизайнерский", "repair_unknown": "Пока не знаю"}
     value = mapping.get(cb.payload, "Пока не знаю")
     current = get_user_data(user_id)
     current["repair_type"] = value
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_TIMELINE)
     kb = make_keyboard([
-        ("Этот месяц", "timeline_month"),
-        ("1-2 месяца", "timeline_1_2"),
-        ("3-4 месяца", "timeline_3_4"),
-        ("5-6 месяцев", "timeline_5_6"),
-        ("Пока не знаю", "timeline_unknown"),
-        BTN_BACK
+        ("Этот месяц", "timeline_month"), ("1-2 месяца", "timeline_1_2"),
+        ("3-4 месяца", "timeline_3_4"), ("5-6 месяцев", "timeline_5_6"),
+        ("Пока не знаю", "timeline_unknown"), BTN_BACK
     ], per_row=2)
     await cb.answer(text="Шаг 5. Когда планируете начинать ремонт?", keyboard=kb)
 
 @bot.on_button_callback(lambda d: d.payload.startswith("timeline_"))
 async def step_timeline(cb: aiomax.Callback):
     user_id = cb.user.user_id
-    mapping = {
-        "timeline_month": "Этот месяц", "timeline_1_2": "1-2 месяца",
-        "timeline_3_4": "3-4 месяца", "timeline_5_6": "5-6 месяцев", "timeline_unknown": "Пока не знаю",
-    }
+    mapping = {"timeline_month": "Этот месяц", "timeline_1_2": "1-2 месяца", "timeline_3_4": "3-4 месяца", "timeline_5_6": "5-6 месяцев", "timeline_unknown": "Пока не знаю"}
     value = mapping.get(cb.payload, "Пока не знаю")
     current = get_user_data(user_id)
     current["timeline"] = value
@@ -370,11 +316,7 @@ async def step_timeline(cb: aiomax.Callback):
         f"Начать ремонт: {value.lower()}.\n\n"
         f"Всё верно?"
     )
-    kb = make_keyboard([
-        ("Всё верно", "confirm_yes"),
-        ("Изменить", "confirm_edit"),
-        BTN_BACK
-    ], per_row=2)
+    kb = make_keyboard([("Всё верно", "confirm_yes"), ("Изменить", "confirm_edit"), BTN_BACK], per_row=2)
     await cb.answer(text=summary, keyboard=kb)
 
 @bot.on_button_callback("confirm_yes")
@@ -397,13 +339,35 @@ async def confirm_edit(cb: aiomax.Callback):
     set_user_data(user_id, {})
     set_user_state(user_id, STATE_HOUSING)
     kb = make_keyboard([
-        ("Новостройка", "housing_new"),
-        ("Вторичка", "housing_secondary"),
-        ("Дом", "housing_house"),
-        ("Другое", "housing_other"),
-        BTN_BACK
+        ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
+        ("Дом", "housing_house"), ("Другое", "housing_other"), BTN_BACK
     ], per_row=2)
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
+
+# ============================================================
+# Шаг 6: Бюджет
+# ============================================================
+
+@bot.on_button_callback("budget_help")
+async def budget_help_handler(cb: aiomax.Callback):
+    text = (
+        "Ремонт, который мы делаем, можно разделить на следующие категории 👇\n\n"
+        "🔹 15-20.000 ₽ (чистовой ремонт без излишеств: ровно, аккуратно, практично)\n\n"
+        "🔹 20-25.000 ₽ (качественный ремонт с продуманной логикой: хорошие материалы, удобная планировка)\n\n"
+        "🔹 25-30.000 ₽ (как у дизайнеров: современные решения, скрытые элементы, визуальная целостность)\n\n"
+        "🔹 от 30.000 ₽ (интерьер с характером: нестандартные решения, сложные узлы, дорогие материалы)\n\n"
+        "**Уточните, какой у вас примерный бюджет на ремонт?** 👇"
+    )
+    kb = make_keyboard([
+        ("до 15.000 ₽ / м²", "budget_15"),
+        ("15-20.000 ₽ / м²", "budget_20"),
+        ("20-25.000 ₽ / м²", "budget_25"),
+        ("25-30.000 ₽ / м²", "budget_30"),
+        ("от 30.000 ₽ / м²", "budget_50"),
+        ("Не знаю", "budget_unknown"),
+        BTN_BACK
+    ], per_row=2)
+    await cb.answer(text=text, keyboard=kb)
 
 # ============================================================
 # Обработка текста (площадь и телефон)
@@ -418,6 +382,7 @@ async def handle_text(message: aiomax.Message):
     if not text:
         return
 
+    # --- Ввод площади ---
     if state == STATE_AREA:
         area_match = re.search(r"\d+", text)
         if area_match:
@@ -426,75 +391,128 @@ async def handle_text(message: aiomax.Message):
             set_user_data(user_id, current)
             set_user_state(user_id, STATE_REPAIR)
             kb = make_keyboard([
-                ("Капитальный", "repair_capital"),
-                ("Косметический", "repair_cosmetic"),
-                ("Дизайнерский", "repair_design"),
-                ("Пока не знаю", "repair_unknown"),
-                BTN_BACK
+                ("Капитальный", "repair_capital"), ("Косметический", "repair_cosmetic"),
+                ("Дизайнерский", "repair_design"), ("Пока не знаю", "repair_unknown"), BTN_BACK
             ], per_row=2)
             await message.reply("Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
         else:
             kb = make_keyboard([BTN_BACK], per_row=1)
-            await message.reply(
-                "Пожалуйста, напишите число (например, 45) "
-                "или выберите «Не знаю» 👇",
-                keyboard=kb
-            )
+            await message.reply("Пожалуйста, напишите число (например, 45) или выберите «Не знаю» 👇", keyboard=kb)
         return
 
+    # --- Ввод телефона (ИСПРАВЛЕНА ПРОВЕРКА) ---
     if state == STATE_PHONE:
-        phone_clean = re.sub(r"\D", "", text)
-        if len(phone_clean) == 11 and phone_clean.startswith("7"):
+        phone_clean = re.sub(r"\D", "", text) # Оставляем только цифры
+        
+        # Если ввели 10 цифр (без кода страны), добавляем 7
+        if len(phone_clean) == 10:
+            phone_clean = "7" + phone_clean
+            
+        # Проверяем: 11 цифр, начинается с 7 или 8
+        if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
+            if phone_clean.startswith("8"):
+                phone_clean = "7" + phone_clean[1:] # Меняем 8 на 7
+                
             current = get_user_data(user_id)
             current["phone"] = phone_clean
             set_user_data(user_id, current)
-            data = get_user_data(user_id)
-
-            admin_text = (
-                f"🔔 Новая заявка на ремонт!\n\n"
-                f"📞 Телефон: {data.get('phone', '—')}\n"
-                f"🏠 Тип жилья: {data.get('housing', '—')}\n"
-                f"🚪 Комнаты: {data.get('rooms', '—')}\n"
-                f"📐 Площадь: {data.get('area', '—')} м²\n"
-                f"🔨 Тип ремонта: {data.get('repair_type', '—')}\n"
-                f"📅 Сроки: {data.get('timeline', '—')}"
+            
+            # Переходим к шагу бюджета
+            set_user_state(user_id, STATE_BUDGET)
+            
+            text_budget = (
+                "Евгений, последний вопрос. Чтобы не тратить ваше время - "
+                "уточните, какой у вас примерный бюджет на ремонт?\n\n"
+                "Так мы сможем сразу предложить то, что подходит именно вам 👇"
             )
-
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cursor_db.execute('''
-                INSERT INTO leads (date, user_id, phone, housing, rooms, area, repair_type, timeline)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                current_time, user_id, data.get('phone', ''),
-                data.get('housing', ''), data.get('rooms', ''),
-                data.get('area', ''), data.get('repair_type', ''),
-                data.get('timeline', '')
-            ))
-            conn.commit()
-
-            try:
-                await bot.send_message(admin_text, user_id=ADMIN_ID)
-            except Exception as e:
-                print(f"Ошибка отправки администратору: {e}")
-
-            kb = make_keyboard([BTN_BACK], per_row=1)
-            await message.reply(
-                "Спасибо! Я уже получил ваши ответы и считаю стоимость.\n\n"
-                "Мы свяжемся с вами в течение часа.",
-                keyboard=kb
-            )
-            clear_user(user_id)
+            kb = make_keyboard([
+                ("От чего зависит цена?", "budget_help"),
+                ("до 15.000 ₽ / м²", "budget_15"),
+                ("15-20.000 ₽ / м²", "budget_20"),
+                ("20-25.000 ₽ / м²", "budget_25"),
+                ("25-30.000 ₽ / м²", "budget_30"),
+                ("от 30.000 ₽ / м²", "budget_50"),
+                ("Не знаю", "budget_unknown"),
+                BTN_BACK
+            ], per_row=2)
+            
+            await message.reply(text_budget, keyboard=kb)
         else:
             kb = make_keyboard([BTN_BACK], per_row=1)
-            await message.reply("Пожалуйста, напишите номер в формате: 79999999999 👇", keyboard=kb)
+            await message.reply("Не удалось распознать номер. Напишите мобильный в формате: 89991234567", keyboard=kb)
         return
 
-    button_states = [STATE_HOUSING, STATE_ROOMS, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM]
+    button_states = [STATE_HOUSING, STATE_ROOMS, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET]
     if state in button_states:
         kb = make_keyboard([BTN_BACK], per_row=1)
         await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
     elif state is None:
         await message.reply("Нажмите /start, чтобы начать 👇")
+
+# ============================================================
+# Обработка выбора бюджета (ЗАВЕРШЕНИЕ КВИЗА)
+# ============================================================
+
+@bot.on_button_callback(lambda d: d.payload.startswith("budget_"))
+async def step_budget(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    
+    mapping = {
+        "budget_15": "до 15.000 ₽ / м²",
+        "budget_20": "15-20.000 ₽ / м²",
+        "budget_25": "20-25.000 ₽ / м²",
+        "budget_30": "25-30.000 ₽ / м²",
+        "budget_50": "от 30.000 ₽ / м²",
+        "budget_unknown": "Не знаю"
+    }
+    value = mapping.get(cb.payload, "Не знаю")
+    
+    current = get_user_data(user_id)
+    current["budget"] = value
+    set_user_data(user_id, current)
+    data = get_user_data(user_id)
+
+    # Заявка админу
+    admin_text = (
+        f"🔔 Новая заявка на ремонт!\n\n"
+        f"📞 Телефон: {data.get('phone', '—')}\n"
+        f"🏠 Тип жилья: {data.get('housing', '—')}\n"
+        f"🚪 Комнаты: {data.get('rooms', '—')}\n"
+        f"📐 Площадь: {data.get('area', '—')} м²\n"
+        f"🔨 Тип ремонта: {data.get('repair_type', '—')}\n"
+        f"📅 Сроки: {data.get('timeline', '—')}\n"
+        f"💰 Бюджет: {value}"
+    )
+
+    # Сохранение в БД
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor_db.execute('''
+        INSERT INTO leads (date, user_id, phone, housing, rooms, area, repair_type, timeline, budget)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        current_time, user_id, data.get('phone', ''),
+        data.get('housing', ''), data.get('rooms', ''),
+        data.get('area', ''), data.get('repair_type', ''),
+        data.get('timeline', ''), value
+    ))
+    conn.commit()
+
+    # Отправка админу
+    try:
+        await bot.send_message(admin_text, user_id=ADMIN_ID)
+    except Exception as e:
+        print(f"Ошибка отправки администратору: {e}")
+
+    # Ответ клиенту
+    kb = make_keyboard([BTN_BACK], per_row=1)
+    await cb.answer(
+        text=(
+            "Спасибо! Я уже получил ваши ответы и считаю стоимость.\n\n"
+            "Мы свяжемся с вами в течение часа."
+        ),
+        keyboard=kb
+    )
+    clear_user(user_id)
 
 # ============================================================
 # КОМАНДА /export
@@ -506,7 +524,7 @@ async def export_leads(ctx: aiomax.CommandContext):
         await ctx.reply("У вас нет прав для этой команды.")
         return
 
-    cursor_db.execute("SELECT date, phone, housing, rooms, area, repair_type, timeline FROM leads ORDER BY id DESC")
+    cursor_db.execute("SELECT date, phone, housing, rooms, area, repair_type, timeline, budget FROM leads ORDER BY id DESC")
     rows = cursor_db.fetchall()
 
     if not rows:
@@ -515,7 +533,7 @@ async def export_leads(ctx: aiomax.CommandContext):
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
-    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Тип ремонта', 'Сроки'])
+    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Тип ремонта', 'Сроки', 'Бюджет'])
     for row in rows:
         writer.writerow(row)
 
