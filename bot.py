@@ -1,5 +1,4 @@
 # bot.py
-import sqlite3
 import asyncio
 import re
 import logging
@@ -10,6 +9,7 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 import aiomax
+import psycopg2 # <--- Новая библиотека для базы данных
 
 # Импортируем банк текстов
 from texts import TEXTS_BANK
@@ -22,11 +22,14 @@ load_dotenv(".env.max")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 _admin_raw = os.getenv("ADMIN_ID", "0").strip()
+DATABASE_URL = os.getenv("DATABASE_URL") # <--- Берем ссылку на базу
 
 if not BOT_TOKEN or BOT_TOKEN == "пока_нет_токена":
     raise ValueError("Укажите реальный BOT_TOKEN в .env.max")
 if not _admin_raw.isdigit():
     raise ValueError(f"ADMIN_ID должен быть числом, сейчас: '{_admin_raw}'")
+if not DATABASE_URL:
+    raise ValueError("Укажите DATABASE_URL в .env.max")
 ADMIN_ID = int(_admin_raw)
 
 # ============================================================
@@ -35,24 +38,10 @@ ADMIN_ID = int(_admin_raw)
 
 bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 
-# --- База данных ---
-conn = sqlite3.connect('leads.db', check_same_thread=False)
+# --- База данных (PostgreSQL / Supabase) ---
+conn = psycopg2.connect(DATABASE_URL)
 cursor_db = conn.cursor()
-cursor_db.execute('''
-    CREATE TABLE IF NOT EXISTS leads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT,
-        user_id INTEGER,
-        phone TEXT,
-        housing TEXT,
-        rooms TEXT,
-        area TEXT,
-        repair_type TEXT,
-        timeline TEXT,
-        budget TEXT
-    )
-''')
-conn.commit()
+# Таблицу мы уже создали вручную в Supabase, поэтому CREATE TABLE не нужен
 
 # --- FSM ---
 fsm_states = {}
@@ -518,11 +507,11 @@ async def step_budget(cb: aiomax.Callback):
         f"💰 Бюджет: {value}"
     )
 
-    # Сохранение в БД
+    # Сохранение в БД (PostgreSQL)
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor_db.execute('''
         INSERT INTO leads (date, user_id, phone, housing, rooms, area, repair_type, timeline, budget)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         current_time, user_id, data.get('phone', ''),
         data.get('housing', ''), data.get('rooms', ''),
@@ -590,16 +579,14 @@ async def export_leads(ctx: aiomax.CommandContext):
 async def check_inactive_users():
     """Раз в минуту проверяет, кто застрял, и пишет им."""
     while True:
-        await asyncio.sleep(60) # Проверяем каждую минуту
+        await asyncio.sleep(60)
         current_time = time.time()
         
         for user_id, data in list(fsm_states.items()):
             state = data.get("state")
             last_active = data.get("last_active", current_time)
             
-            # Если клиент не в главном меню и молчит уже 15 минут (900 секунд)
             if state is not None and (current_time - last_active) > 900:
-                
                 text = (
                     "👋 Здравствуйте! Вы здесь?\n\n"
                     "Я вижу, вы начали расчет, но отвлеклись. "
@@ -608,12 +595,8 @@ async def check_inactive_users():
                 )
                 
                 try:
-                    # Отправляем напоминание
                     await bot.send_message(text, user_id=user_id)
-                    
-                    # Сбрасываем время активности, чтобы не напоминать снова каждую минуту
                     fsm_states[user_id]["last_active"] = current_time
-                    
                 except Exception as e:
                     print(f"Не удалось отправить напоминание {user_id}: {e}")
 
@@ -625,7 +608,7 @@ from keep_alive import start_web_server
 
 async def main():
     asyncio.create_task(start_web_server())
-    asyncio.create_task(check_inactive_users()) # Запускаем таймер дожима
+    asyncio.create_task(check_inactive_users())
     logging.info("Запуск бота...")
     await bot.start_polling()
     await bot.close()
