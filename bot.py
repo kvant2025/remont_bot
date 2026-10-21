@@ -31,9 +31,10 @@ ADMIN_ID = int(_admin_raw)
 
 bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 
-# --- База данных ---
+# --- Настройка базы данных SQLite ---
 conn = sqlite3.connect('leads.db', check_same_thread=False)
 cursor_db = conn.cursor()
+
 cursor_db.execute('''
     CREATE TABLE IF NOT EXISTS leads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,20 +50,33 @@ cursor_db.execute('''
 ''')
 conn.commit()
 
-# --- FSM ---
+# --- Настройка FSM ---
 fsm_states = {}
-def get_user_state(user_id): return fsm_states.get(user_id, {}).get("state", None)
-def set_user_state(user_id, state):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}}
-    fsm_states[user_id]["state"] = state
-def get_user_data(user_id): return fsm_states.get(user_id, {}).get("data", {})
-def set_user_data(user_id, data):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}}
-    fsm_states[user_id]["data"] = data
-def clear_user(user_id):
-    if user_id in fsm_states: del fsm_states[user_id]
 
-# --- Состояния ---
+def get_user_state(user_id):
+    return fsm_states.get(user_id, {}).get("state", None)
+
+def set_user_state(user_id, state):
+    if user_id not in fsm_states:
+        fsm_states[user_id] = {"state": None, "data": {}}
+    fsm_states[user_id]["state"] = state
+
+def get_user_data(user_id):
+    return fsm_states.get(user_id, {}).get("data", {})
+
+def set_user_data(user_id, data):
+    if user_id not in fsm_states:
+        fsm_states[user_id] = {"state": None, "data": {}}
+    fsm_states[user_id]["data"] = data
+
+def clear_user(user_id):
+    if user_id in fsm_states:
+        del fsm_states[user_id]
+
+# ============================================================
+# Состояния
+# ============================================================
+
 STATE_HOUSING = "housing"
 STATE_ROOMS = "rooms"
 STATE_AREA = "area"
@@ -71,7 +85,10 @@ STATE_TIMELINE = "timeline"
 STATE_CONFIRM = "confirm"
 STATE_PHONE = "phone"
 
-# --- Клавиатура ---
+# ============================================================
+# Клавиатура
+# ============================================================
+
 def make_keyboard(buttons, per_row=2):
     kb = aiomax.buttons.KeyboardBuilder()
     row = []
@@ -80,13 +97,15 @@ def make_keyboard(buttons, per_row=2):
         if len(row) >= per_row:
             kb.row(*row)
             row = []
-    if row: kb.row(*row)
+    if row:
+        kb.row(*row)
     return kb
 
 # ============================================================
-# Главное меню и приветствие
+# Приветственное сообщение (общая логика)
 # ============================================================
 
+# Правка 2: Изменен текст приветствия
 WELCOME_TEXT = (
     "👋 Здравствуйте! Я бот компании.\n\n" 
     "🟡 Безопасные материалы\n"
@@ -96,7 +115,7 @@ WELCOME_TEXT = (
     "Ответьте на пару вопросов и узнайте точную стоимость 👇"
 )
 
-# Короткие тексты кнопок, чтобы умещались
+# Правка 4: Умещаем текст на кнопках (добавляем переносы строк \n)
 WELCOME_KB = make_keyboard([
     ("✅ Узнать стоимость", "start_quiz"),
     ("📸 Портфолио", "portfolio"),
@@ -104,34 +123,40 @@ WELCOME_KB = make_keyboard([
     ("📞 Связаться", "contact"),
 ], per_row=2)
 
-# Кнопка возврата в меню (создадим отдельно, чтобы вставлять куда нужно)
-BTN_BACK = ("🏠 В главное меню", "back_to_menu")
-
 # ============================================================
-# Обработчики старта
+# Обработчик кнопки «Начать» (без /start)
 # ============================================================
 
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
     await payload.send(WELCOME_TEXT, keyboard=WELCOME_KB)
 
+# ============================================================
+# Обработчик команды /start (если напишут вручную)
+# ============================================================
+
 @bot.on_command("start")
 async def cmd_start(ctx: aiomax.CommandContext):
     await ctx.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
 
+# ============================================================
+# Обработчик возврата в главное меню
+# ============================================================
+
 @bot.on_button_callback("back_to_menu")
 async def back_to_menu_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
-    clear_user(user_id) # Сбрасываем состояние, если были в квизе
+    clear_user(user_id)  # Сбрасываем состояние
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
-# Связаться с исполнителем
+# Связаться с исполнителем (кликабельный номер)
 # ============================================================
 
 @bot.on_button_callback("contact")
 async def contact_handler(cb: aiomax.Callback):
-    phone_number = "+79220392000"
+    phone_number = "+79220392000"  # Ваш номер
+    
     text = (
         "📞 **Связаться с исполнителем**\n\n"
         "Вы можете напрямую обсудить детали ремонта с нашим мастером:\n\n"
@@ -140,16 +165,16 @@ async def contact_handler(cb: aiomax.Callback):
         "Нажмите на номер, чтобы позвонить с телефона 👆\n"
         "Или напишите нам прямо здесь, и мы ответим в течение 15 минут."
     )
-    # Добавляем кнопку "Назад"
-    kb = make_keyboard([BTN_BACK], per_row=1)
-    await cb.answer(text=text, keyboard=kb)
+    
+    await cb.answer(text=text)
 
 # ============================================================
-# Отзывы
+# Отзывы (Автопоиск фото в папке)
 # ============================================================
 
 @bot.on_button_callback("reviews")
 async def reviews_handler(cb: aiomax.Callback):
+    # Правка 3: Изменен текст
     text = (
         "💬 **Отзывы и благодарственные письма**\n\n"
         "Мы гордимся нашей репутацией. Вот что пишут клиенты:\n\n"
@@ -163,6 +188,7 @@ async def reviews_handler(cb: aiomax.Callback):
     
     if os.path.exists(folder_path):
         files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
+        
         for filename in files:
             file_path = os.path.join(folder_path, filename)
             try:
@@ -171,12 +197,10 @@ async def reviews_handler(cb: aiomax.Callback):
             except Exception as e:
                 print(f"Ошибка загрузки файла {filename}: {e}")
 
-    kb = make_keyboard([BTN_BACK], per_row=1)
-
     if not attachments:
-        await cb.answer(text=text + "\n\n*(Файлы писем временно недоступны)*", keyboard=kb)
+        await cb.answer(text=text + "\n\n*(Файлы писем временно недоступны)*")
     else:
-        await cb.answer(text=text, attachments=attachments, keyboard=kb)
+        await cb.answer(text=text, attachments=attachments)
 
 # ============================================================
 # Портфолио
@@ -194,6 +218,7 @@ async def portfolio_handler(cb: aiomax.Callback):
     
     if os.path.exists(folder_path):
         files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
+        
         for filename in files:
             file_path = os.path.join(folder_path, filename)
             try:
@@ -202,12 +227,10 @@ async def portfolio_handler(cb: aiomax.Callback):
             except Exception as e:
                 print(f"Ошибка загрузки фото {filename}: {e}")
 
-    kb = make_keyboard([BTN_BACK], per_row=1)
-
     if not attachments:
-        await cb.answer(text=text + "\n\n*(Фото временно недоступны)*", keyboard=kb)
+        await cb.answer(text=text + "\n\n*(Фото временно недоступны)*")
     else:
-        await cb.answer(text=text, attachments=attachments, keyboard=kb)
+        await cb.answer(text=text, attachments=attachments)
 
 # ============================================================
 # Квиз (Шаг 1-5)
@@ -223,14 +246,18 @@ async def start_quiz(cb: aiomax.Callback):
         ("Вторичка", "housing_secondary"),
         ("Дом", "housing_house"),
         ("Другое", "housing_other"),
-        BTN_BACK # Добавили кнопку назад
     ], per_row=2)
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
 
 @bot.on_button_callback(lambda d: d.payload.startswith("housing_"))
 async def step_housing(cb: aiomax.Callback):
     user_id = cb.user.user_id
-    mapping = {"housing_new": "Новостройка", "housing_secondary": "Вторичка", "housing_house": "Дом", "housing_other": "Другое"}
+    mapping = {
+        "housing_new": "Новостройка",
+        "housing_secondary": "Вторичка",
+        "housing_house": "Дом",
+        "housing_other": "Другое",
+    }
     value = mapping.get(cb.payload, "Другое")
     current = get_user_data(user_id)
     current["housing"] = value
@@ -246,7 +273,6 @@ async def step_housing(cb: aiomax.Callback):
         ("Ванная/туалет", "rooms_bathroom"),
         ("Балкон", "rooms_balcony"),
         ("Другое", "rooms_other"),
-        BTN_BACK # Добавили кнопку назад
     ], per_row=3)
     await cb.answer(text="Шаг 2. Сделать во всех комнатах или в отдельных?", keyboard=kb)
 
@@ -254,20 +280,26 @@ async def step_housing(cb: aiomax.Callback):
 async def step_rooms(cb: aiomax.Callback):
     user_id = cb.user.user_id
     mapping = {
-        "rooms_all": "Во всех", "rooms_living": "Гостиная", "rooms_bedroom": "Спальня",
-        "rooms_kids": "Детская", "rooms_kitchen": "Кухня", "rooms_hallway": "Коридор",
-        "rooms_bathroom": "Ванная/туалет", "rooms_balcony": "Балкон", "rooms_other": "Другое",
+        "rooms_all": "Во всех",
+        "rooms_living": "Гостиная",
+        "rooms_bedroom": "Спальня",
+        "rooms_kids": "Детская",
+        "rooms_kitchen": "Кухня",
+        "rooms_hallway": "Коридор",
+        "rooms_bathroom": "Ванная/туалет",
+        "rooms_balcony": "Балкон",
+        "rooms_other": "Другое",
     }
     value = mapping.get(cb.payload, "Другое")
     current = get_user_data(user_id)
     current["rooms"] = value
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_AREA)
-    kb = make_keyboard([
-        ("Не знаю", "area_unknown"),
-        BTN_BACK # Добавили кнопку назад
-    ], per_row=1)
-    await cb.answer(text="Шаг 3. Напишите общую площадь помещений в м² (примерно):", keyboard=kb)
+    kb = make_keyboard([("Не знаю", "area_unknown")], per_row=1)
+    await cb.answer(
+        text="Шаг 3. Напишите общую площадь помещений в м² (примерно):",
+        keyboard=kb
+    )
 
 @bot.on_button_callback("area_unknown")
 async def step_area_unknown(cb: aiomax.Callback):
@@ -281,7 +313,6 @@ async def step_area_unknown(cb: aiomax.Callback):
         ("Косметический", "repair_cosmetic"),
         ("Дизайнерский", "repair_design"),
         ("Пока не знаю", "repair_unknown"),
-        BTN_BACK # Добавили кнопку назад
     ], per_row=2)
     await cb.answer(text="Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
 
@@ -289,8 +320,10 @@ async def step_area_unknown(cb: aiomax.Callback):
 async def step_repair(cb: aiomax.Callback):
     user_id = cb.user.user_id
     mapping = {
-        "repair_capital": "Капитальный", "repair_cosmetic": "Косметический",
-        "repair_design": "Дизайнерский", "repair_unknown": "Пока не знаю",
+        "repair_capital": "Капитальный",
+        "repair_cosmetic": "Косметический",
+        "repair_design": "Дизайнерский",
+        "repair_unknown": "Пока не знаю",
     }
     value = mapping.get(cb.payload, "Пока не знаю")
     current = get_user_data(user_id)
@@ -303,7 +336,6 @@ async def step_repair(cb: aiomax.Callback):
         ("3-4 месяца", "timeline_3_4"),
         ("5-6 месяцев", "timeline_5_6"),
         ("Пока не знаю", "timeline_unknown"),
-        BTN_BACK # Добавили кнопку назад
     ], per_row=2)
     await cb.answer(text="Шаг 5. Когда планируете начинать ремонт?", keyboard=kb)
 
@@ -311,8 +343,11 @@ async def step_repair(cb: aiomax.Callback):
 async def step_timeline(cb: aiomax.Callback):
     user_id = cb.user.user_id
     mapping = {
-        "timeline_month": "Этот месяц", "timeline_1_2": "1-2 месяца",
-        "timeline_3_4": "3-4 месяца", "timeline_5_6": "5-6 месяцев", "timeline_unknown": "Пока не знаю",
+        "timeline_month": "Этот месяц",
+        "timeline_1_2": "1-2 месяца",
+        "timeline_3_4": "3-4 месяца",
+        "timeline_5_6": "5-6 месяцев",
+        "timeline_unknown": "Пока не знаю",
     }
     value = mapping.get(cb.payload, "Пока не знаю")
     current = get_user_data(user_id)
@@ -332,7 +367,6 @@ async def step_timeline(cb: aiomax.Callback):
     kb = make_keyboard([
         ("Всё верно", "confirm_yes"),
         ("Изменить", "confirm_edit"),
-        BTN_BACK # Добавили кнопку назад
     ], per_row=2)
     await cb.answer(text=summary, keyboard=kb)
 
@@ -340,14 +374,12 @@ async def step_timeline(cb: aiomax.Callback):
 async def confirm_yes(cb: aiomax.Callback):
     user_id = cb.user.user_id
     set_user_state(user_id, STATE_PHONE)
-    kb = make_keyboard([BTN_BACK], per_row=1) # Добавили кнопку назад
     await cb.answer(
         text=(
             "Отлично! Пожалуйста, отправьте ваш номер телефона в ответ на это сообщение. "
             "За номером закрепим индивидуальный промокод 🔥 48253 🔥 на скидку 10%.\n\n"
             "Напишите номер в формате: 79999999999"
-        ),
-        keyboard=kb
+        )
     )
 
 @bot.on_button_callback("confirm_edit")
@@ -360,7 +392,6 @@ async def confirm_edit(cb: aiomax.Callback):
         ("Вторичка", "housing_secondary"),
         ("Дом", "housing_house"),
         ("Другое", "housing_other"),
-        BTN_BACK
     ], per_row=2)
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
 
@@ -389,15 +420,12 @@ async def handle_text(message: aiomax.Message):
                 ("Косметический", "repair_cosmetic"),
                 ("Дизайнерский", "repair_design"),
                 ("Пока не знаю", "repair_unknown"),
-                BTN_BACK
             ], per_row=2)
             await message.reply("Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
         else:
-            kb = make_keyboard([BTN_BACK], per_row=1)
             await message.reply(
                 "Пожалуйста, напишите число (например, 45) "
-                "или выберите «Не знаю» 👇",
-                keyboard=kb
+                "или выберите «Не знаю» 👇"
             )
         return
 
@@ -436,7 +464,11 @@ async def handle_text(message: aiomax.Message):
             except Exception as e:
                 print(f"Ошибка отправки администратору: {e}")
 
-            kb = make_keyboard([BTN_BACK], per_row=1)
+            # Правка 1: Добавляем кнопку "В главное меню" после ввода телефона
+            kb = make_keyboard([
+                ("🏠 Вернуться в главное меню", "back_to_menu"),
+            ], per_row=1)
+
             await message.reply(
                 "Спасибо! Я уже получил ваши ответы и считаю стоимость. "
                 "Мы свяжемся с вами в течение 15 минут.",
@@ -444,14 +476,12 @@ async def handle_text(message: aiomax.Message):
             )
             clear_user(user_id)
         else:
-            kb = make_keyboard([BTN_BACK], per_row=1)
-            await message.reply("Пожалуйста, напишите номер в формате: 79999999999 👇", keyboard=kb)
+            await message.reply("Пожалуйста, напишите номер в формате: 79999999999 👇")
         return
 
     button_states = [STATE_HOUSING, STATE_ROOMS, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM]
     if state in button_states:
-        kb = make_keyboard([BTN_BACK], per_row=1)
-        await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
+        await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇")
     elif state is None:
         await message.reply("Нажмите /start, чтобы начать 👇")
 
@@ -491,7 +521,7 @@ async def export_leads(ctx: aiomax.CommandContext):
         await ctx.reply(text_export)
 
 # ============================================================
-# Запуск
+# Запуск (асинхронный для Render + UptimeRobot)
 # ============================================================
 
 from keep_alive import start_web_server
