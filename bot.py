@@ -371,6 +371,7 @@ async def confirm_edit(cb: aiomax.Callback):
 async def budget_help_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
+    
     text = (
         "Ремонт, который мы делаем, можно разделить на следующие категории 👇\n\n"
         "🔹 15-20.000 ₽ (чистовой ремонт без излишеств: ровно, аккуратно, практично)\n\n"
@@ -379,6 +380,7 @@ async def budget_help_handler(cb: aiomax.Callback):
         "🔹 от 30.000 ₽ (интерьер с характером: нестандартные решения, сложные узлы, дорогие материалы)\n\n"
         "**Уточните, какой у вас примерный бюджет на ремонт?** 👇"
     )
+    
     kb = make_keyboard([
         ("до 15.000 ₽ / м²", "budget_15"),
         ("15-20.000 ₽ / м²", "budget_20"),
@@ -388,6 +390,7 @@ async def budget_help_handler(cb: aiomax.Callback):
         ("Не знаю", "budget_unknown"),
         BTN_BACK
     ], per_row=2)
+    
     await cb.answer(text=text, keyboard=kb)
 
 # ============================================================
