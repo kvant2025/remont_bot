@@ -105,8 +105,9 @@ def make_keyboard(buttons, per_row=2):
 # Приветственное сообщение (общая логика)
 # ============================================================
 
+# Правка 2: Изменен текст приветствия
 WELCOME_TEXT = (
-    "👋 Здравствуйте! Я бот компании «Ремонт Под Ключ в Екатеринбурге».\n\n"
+    "👋 Здравствуйте! Я бот компании.\n\n" 
     "🟡 Безопасные материалы\n"
     "🟡 Защита от проблем после ремонта\n"
     "🟡 Долговечность: как в первый день\n"
@@ -114,11 +115,12 @@ WELCOME_TEXT = (
     "Ответьте на пару вопросов и узнайте точную стоимость 👇"
 )
 
+# Правка 4: Умещаем текст на кнопках (добавляем переносы строк \n)
 WELCOME_KB = make_keyboard([
     ("✅ Узнать стоимость", "start_quiz"),
     ("📸 Портфолио", "portfolio"),
-    ("💬 Отзывы", "reviews"),
-    ("📞 Связаться с исполнителем", "contact"),
+    ("💬 Отзывы и\nблагодарственные\nписьма", "reviews"),
+    ("📞 Связаться\nс исполнителем", "contact"),
 ], per_row=2)
 
 # ============================================================
@@ -136,6 +138,16 @@ async def bot_start_handler(payload: aiomax.BotStartPayload):
 @bot.on_command("start")
 async def cmd_start(ctx: aiomax.CommandContext):
     await ctx.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+
+# ============================================================
+# Обработчик возврата в главное меню
+# ============================================================
+
+@bot.on_button_callback("back_to_menu")
+async def back_to_menu_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    clear_user(user_id)  # Сбрасываем состояние
+    await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
 # Связаться с исполнителем (кликабельный номер)
@@ -157,30 +169,29 @@ async def contact_handler(cb: aiomax.Callback):
     await cb.answer(text=text)
 
 # ============================================================
-# Отзывы (Автопоиск фото в папке с помощью upload_image)
+# Отзывы (Автопоиск фото в папке)
 # ============================================================
 
 @bot.on_button_callback("reviews")
 async def reviews_handler(cb: aiomax.Callback):
+    # Правка 3: Изменен текст
     text = (
         "💬 **Отзывы и благодарственные письма**\n\n"
         "Мы гордимся нашей репутацией. Вот что пишут клиенты:\n\n"
         "«Сделали ремонт в двушке за 2 месяца. Всё чётко по срокам, мусор вывезли. "
         "Отдельное спасибо за помощь с выбором плитки!» — *Анна, ЖК «Светлый»*\n\n"
-        "Ниже вы можете посмотреть сканы благодарственных писем."
+        "Выше вы можете посмотреть сканы благодарственных писем и отзывы."
     )
     
     folder_path = os.path.join("media", "reviews")
     attachments = []
     
     if os.path.exists(folder_path):
-        # Берем максимум 10 файлов, чтобы не превысить лимит MAX
         files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:10]
         
         for filename in files:
             file_path = os.path.join(folder_path, filename)
             try:
-                # ИСПОЛЬЗУЕМ upload_image для картинок
                 attachment = await bot.upload_image(file_path)
                 attachments.append(attachment)
             except Exception as e:
@@ -192,7 +203,7 @@ async def reviews_handler(cb: aiomax.Callback):
         await cb.answer(text=text, attachments=attachments)
 
 # ============================================================
-# Портфолио (Автопоиск фото в папке с помощью upload_image)
+# Портфолио
 # ============================================================
 
 @bot.on_button_callback("portfolio")
@@ -453,9 +464,15 @@ async def handle_text(message: aiomax.Message):
             except Exception as e:
                 print(f"Ошибка отправки администратору: {e}")
 
+            # Правка 1: Добавляем кнопку "В главное меню" после ввода телефона
+            kb = make_keyboard([
+                ("🏠 Вернуться в главное меню", "back_to_menu"),
+            ], per_row=1)
+
             await message.reply(
                 "Спасибо! Я уже получил ваши ответы и считаю стоимость. "
-                "Мы свяжемся с вами в течение 15 минут."
+                "Мы свяжемся с вами в течение 15 минут.",
+                keyboard=kb
             )
             clear_user(user_id)
         else:
