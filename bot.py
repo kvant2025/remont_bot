@@ -697,7 +697,7 @@ async def finalize_lead(message: aiomax.Message, user_id):
     await message.reply(
         text=(
             "Спасибо! Я уже получил ваши ответы и считаю стоимость.\n\n"
-            "Мы свяжемся с вами в течение 15 минут."
+            "Мы свяжемся с вами в течение часа."
         ),
         keyboard=kb
     )
