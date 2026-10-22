@@ -67,7 +67,7 @@ def clear_user(user_id):
 # --- Состояния ---
 STATE_HOUSING = "housing"
 STATE_ROOMS_MULTI = "rooms_multi" 
-STATE_AREA = "area"
+STATE_ROOM_AREA = "room_area" # <--- НОВОЕ СОСТОЯНИЕ для ввода площади каждой комнаты
 STATE_CEILING = "ceiling"
 STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
@@ -115,6 +115,7 @@ WELCOME_KB = make_keyboard([
 BTN_BACK = ("🏠 В главное меню", "back_to_menu")
 BTN_PREV = ("⬅️ Назад", "go_back")
 BTN_NEXT_TIP = ("➡️ Следующий совет", "next_tip")
+BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 
 # ============================================================
 # Обработчики старта
@@ -146,7 +147,6 @@ async def go_back_handler(cb: aiomax.Callback):
     state = get_user_state(user_id)
     
     if state == STATE_CONTACT_METHOD:
-        # Возвращаемся к бюджету
         set_user_state(user_id, STATE_BUDGET)
         text = (
             "Последний вопрос. Чтобы не тратить ваше время - "
@@ -163,7 +163,6 @@ async def go_back_handler(cb: aiomax.Callback):
         await cb.answer(text=text, keyboard=kb)
         
     elif state == STATE_PHONE:
-        # Возвращаемся к выбору способа связи
         set_user_state(user_id, STATE_CONTACT_METHOD)
         text = (
             "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
@@ -179,7 +178,6 @@ async def go_back_handler(cb: aiomax.Callback):
         await cb.answer(text=text, keyboard=kb)
     
     else:
-        # В остальных случаях кидаем в главное меню
         clear_user(user_id)
         await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
@@ -217,9 +215,9 @@ async def contact_handler(cb: aiomax.Callback):
     text = (
         "📞 **Связаться с исполнителем**\n\n"
         "Вы можете напрямую обсудить детали ремонта с нашим мастером:\n\n"
-        "👤 **Имя:** Евгений\n" # <--- Изменили имя
+        "👤 **Имя:** Евгений\n"
         f"📱 **Телефон:** [{phone_number}](tel:{phone_number})\n\n"
-        f"✉️ **Почта:** {email}\n\n" # <--- Добавили почту
+        f"✉️ **Почта:** {email}\n\n"
         "Нажмите на номер, чтобы позвонить с телефона 👆\n"
         "Или напишите нам прямо здесь, и мы ответим в течение 15 минут."
     )
@@ -369,30 +367,46 @@ async def rooms_done(cb: aiomax.Callback):
         return
         
     current["rooms"] = ", ".join(rooms_list)
+    current["rooms_to_process"] = list(rooms_list)
+    current["areas"] = {}
     set_user_data(user_id, current)
-    set_user_state(user_id, STATE_AREA)
     
-    kb = make_keyboard([("Не знаю", "area_unknown"), BTN_BACK], per_row=1)
-    await cb.answer(text="Шаг 3. Напишите общую площадь помещений в м² (примерно):", keyboard=kb)
+    set_user_state(user_id, STATE_ROOM_AREA)
+    
+    room = rooms_list[0]
+    kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
+    await cb.answer(text=f"Шаг 3. Какая площадь у комнаты **{room}**? (в м²)", keyboard=kb)
 
 @bot.on_button_callback("area_unknown")
 async def step_area_unknown(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
-    current = get_user_data(user_id)
-    current["area"] = "Не знаю"
-    set_user_data(user_id, current)
     
-    # Переходим к потолкам
-    set_user_state(user_id, STATE_CEILING)
-    kb = make_keyboard([
-        ("До 2.7 м (стандарт)", "ceiling_27"),
-        ("2.7 - 3.2 м", "ceiling_32"),
-        ("Выше 3.2 м", "ceiling_high"),
-        ("Не знаю", "ceiling_unknown"),
-        BTN_BACK
-    ], per_row=2)
-    await cb.answer(text="Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
+    current = get_user_data(user_id)
+    rooms_to_process = current.get("rooms_to_process", [])
+    
+    if rooms_to_process:
+        current_room = rooms_to_process[0]
+        areas = current.get("areas", {})
+        areas[current_room] = "Не знаю"
+        current["areas"] = areas
+        current["rooms_to_process"] = rooms_to_process[1:]
+        set_user_data(user_id, current)
+    
+    if current["rooms_to_process"]:
+        next_room = current["rooms_to_process"][0]
+        kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
+        await cb.answer(text=f"Какая площадь у комнаты **{next_room}**? (в м²)", keyboard=kb)
+    else:
+        set_user_state(user_id, STATE_CEILING)
+        kb = make_keyboard([
+            ("До 2.7 м (стандарт)", "ceiling_27"),
+            ("2.7 - 3.2 м", "ceiling_32"),
+            ("Выше 3.2 м", "ceiling_high"),
+            ("Не знаю", "ceiling_unknown"),
+            BTN_BACK
+        ], per_row=2)
+        await cb.answer(text="Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
 
 @bot.on_button_callback(lambda d: d.payload.startswith("ceiling_"))
 async def step_ceiling(cb: aiomax.Callback):
@@ -447,13 +461,16 @@ async def step_timeline(cb: aiomax.Callback):
     set_user_state(user_id, STATE_CONFIRM)
     data = get_user_data(user_id)
     
+    areas_dict = data.get("areas", {})
+    areas_str = ", ".join([f"{room}: {area} м²" for room, area in areas_dict.items()])
+    
     summary = (
         f"Проверьте:\n"
         f"Нужно сделать {data.get('repair_type', '—').lower()} "
         f"в {data.get('housing', '—').lower()} "
-        f"({data.get('rooms', '—')}), "
-        f"площадь: {data.get('area', '—')} м², "
-        f"высота потолков: {data.get('ceiling', '—')}. "
+        f"({data.get('rooms', '—')}). "
+        f"Площади: {areas_str}. "
+        f"Высота потолков: {data.get('ceiling', '—')}. "
         f"Начать ремонт: {value.lower()}.\n\n"
         f"Всё верно?"
     )
@@ -540,7 +557,6 @@ async def step_budget(cb: aiomax.Callback):
     current["budget"] = value
     set_user_data(user_id, current)
     
-    # ПЕРЕХОДИМ К ВЫБОРУ СПОСОБА СВЯЗИ
     set_user_state(user_id, STATE_CONTACT_METHOD)
     
     text = (
@@ -627,7 +643,7 @@ async def contact_call_handler(cb: aiomax.Callback):
     )
 
 # ============================================================
-# Ввод телефона / Площади
+# Ввод телефона / Площади / Площадей по комнатам
 # ============================================================
 
 @bot.on_message()
@@ -640,27 +656,38 @@ async def handle_text(message: aiomax.Message):
     if not text:
         return
 
-    # --- Ввод площади ---
-    if state == STATE_AREA:
+    # --- Ввод площади для конкретной комнаты ---
+    if state == STATE_ROOM_AREA:
         area_match = re.search(r"\d+", text)
         if area_match:
             current = get_user_data(user_id)
-            current["area"] = area_match.group()
-            set_user_data(user_id, current)
+            rooms_to_process = current.get("rooms_to_process", [])
             
-            # Переходим к потолкам
-            set_user_state(user_id, STATE_CEILING)
-            kb = make_keyboard([
-                ("До 2.7 м (стандарт)", "ceiling_27"),
-                ("2.7 - 3.2 м", "ceiling_32"),
-                ("Выше 3.2 м", "ceiling_high"),
-                ("Не знаю", "ceiling_unknown"),
-                BTN_BACK
-            ], per_row=2)
-            await message.reply("Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
+            if rooms_to_process:
+                current_room = rooms_to_process[0]
+                areas = current.get("areas", {})
+                areas[current_room] = area_match.group()
+                current["areas"] = areas
+                current["rooms_to_process"] = rooms_to_process[1:]
+                set_user_data(user_id, current)
+            
+            if current["rooms_to_process"]:
+                next_room = current["rooms_to_process"][0]
+                kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
+                await message.reply(f"Какая площадь у комнаты **{next_room}**? (в м²)", keyboard=kb)
+            else:
+                set_user_state(user_id, STATE_CEILING)
+                kb = make_keyboard([
+                    ("До 2.7 м (стандарт)", "ceiling_27"),
+                    ("2.7 - 3.2 м", "ceiling_32"),
+                    ("Выше 3.2 м", "ceiling_high"),
+                    ("Не знаю", "ceiling_unknown"),
+                    BTN_BACK
+                ], per_row=2)
+                await message.reply("Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
         else:
-            kb = make_keyboard([BTN_BACK], per_row=1)
-            await message.reply("Пожалуйста, напишите число (например, 45) или выберите «Не знаю» 👇", keyboard=kb)
+            kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
+            await message.reply("Пожалуйста, напишите число (например, 15) или выберите «Не знаю» 👇", keyboard=kb)
         return
 
     # --- Ввод телефона (после выбора способа связи) ---
@@ -671,7 +698,6 @@ async def handle_text(message: aiomax.Message):
             phone_clean = "7" + phone_clean
             
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
-            # Если номер корректный
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
             
@@ -681,22 +707,19 @@ async def handle_text(message: aiomax.Message):
             await finalize_lead(message, user_id)
             
         else:
-            # Если номер НЕ корректный
             method = get_user_data(user_id).get("contact_method", "")
             
-            # Если выбрали WhatsApp или Звонок — строго требуем телефон
             if method in ["WhatsApp", "Звонок"]:
                 await message.reply(
                     "Не удалось распознать номер телефона. "
                     "Пожалуйста, введите его в формате: **79999999999** (11 цифр).",
                     keyboard=make_keyboard([BTN_PREV], per_row=1)
                 )
-                return # Не сохраняем заявку, ждем правильный номер
+                return
                 
-            # Если выбрали MAX или Telegram — разрешаем ник (сохраняем как текст)
             else:
                 current = get_user_data(user_id)
-                current["phone"] = text # Сохраняем то, что ввел пользователь
+                current["phone"] = text
                 set_user_data(user_id, current)
                 await finalize_lead(message, user_id)
         return
@@ -716,13 +739,19 @@ async def finalize_lead(message: aiomax.Message, user_id):
     data = get_user_data(user_id)
     method = data.get("contact_method", "Не указан")
     
+    # Формируем строку с площадями для админа и БД
+    areas_dict = data.get("areas", {})
+    areas_str = ", ".join([f"{room}: {area}" for room, area in areas_dict.items()])
+    if not areas_str:
+        areas_str = "Не указаны"
+        
     admin_text = (
         f"🔔 Новая заявка на ремонт!\n"
         f"Способ связи: {method}\n\n"
         f"📞 Телефон/Ник: {data.get('phone', '—')}\n"
         f"🏠 Тип жилья: {data.get('housing', '—')}\n"
         f"🚪 Комнаты: {data.get('rooms', '—')}\n"
-        f"📐 Площадь: {data.get('area', '—')} м²\n"
+        f"📐 Площади: {areas_str}\n"
         f"📏 Высота потолков: {data.get('ceiling', '—')}\n"
         f"🔨 Тип ремонта: {data.get('repair_type', '—')}\n"
         f"📅 Сроки: {data.get('timeline', '—')}\n"
@@ -742,7 +771,8 @@ async def finalize_lead(message: aiomax.Message, user_id):
     ''', (
         current_time, user_id, data.get('phone', ''),
         data.get('housing', ''), data.get('rooms', ''),
-        data.get('area', ''), data.get('ceiling', ''),
+        areas_str, # <--- Записываем строку с площадями в поле area
+        data.get('ceiling', ''),
         data.get('repair_type', ''),
         data.get('timeline', ''), data.get('budget', '')
     ))
@@ -782,7 +812,7 @@ async def export_leads(ctx: aiomax.CommandContext):
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
-    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Потолки', 'Тип ремонта', 'Сроки', 'Бюджет'])
+    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площади', 'Потолки', 'Тип ремонта', 'Сроки', 'Бюджет'])
     for row in rows:
         writer.writerow(row)
 
