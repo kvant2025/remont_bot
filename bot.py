@@ -71,8 +71,9 @@ STATE_AREA = "area"
 STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
 STATE_CONFIRM = "confirm"
-STATE_PHONE = "phone"
 STATE_BUDGET = "budget"
+STATE_CONTACT_METHOD = "contact_method"
+STATE_PHONE = "phone"
 
 # --- Клавиатура ---
 def make_keyboard(buttons, per_row=2):
@@ -374,20 +375,32 @@ async def step_timeline(cb: aiomax.Callback):
     kb = make_keyboard([("Всё верно", "confirm_yes"), ("Изменить", "confirm_edit"), BTN_BACK], per_row=2)
     await cb.answer(text=summary, keyboard=kb)
 
+# ============================================================
+# Обработка ПОДТВЕРЖДЕНИЯ (Всё верно)
+# ============================================================
+
 @bot.on_button_callback("confirm_yes")
 async def confirm_yes(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
-    set_user_state(user_id, STATE_PHONE)
-    kb = make_keyboard([BTN_BACK], per_row=1)
-    await cb.answer(
-        text=(
-            "Отлично! Пожалуйста, отправьте ваш номер телефона в ответ на это сообщение. "
-            "За номером закрепим индивидуальный промокод 🔥 48253 🔥 на скидку 10%.\n\n"
-            "Напишите номер в формате: 79999999999"
-        ),
-        keyboard=kb
+    
+    # Переводим на шаг выбора бюджета (вместо запроса телефона!)
+    set_user_state(user_id, STATE_BUDGET)
+    
+    text = (
+        "Последний вопрос. Чтобы не тратить ваше время - "
+        "уточните, какой у вас примерный бюджет на ремонт?\n\n"
+        "Так мы сможем сразу предложить то, что подходит именно вам 👇"
     )
+    kb = make_keyboard([
+        ("От чего зависит цена?", "help_price"),
+        ("15-25.000 ₽ / м²", "budget_15_25"),
+        ("от 25.000 ₽ / м²", "budget_25_plus"),
+        ("Не знаю", "budget_unknown"),
+        BTN_BACK
+    ], per_row=2)
+    
+    await cb.answer(text=text, keyboard=kb)
 
 @bot.on_button_callback("confirm_edit")
 async def confirm_edit(cb: aiomax.Callback):
@@ -428,7 +441,101 @@ async def budget_help_handler(cb: aiomax.Callback):
     await cb.answer(text=text, keyboard=kb)
 
 # ============================================================
-# Обработка текста (площадь и телефон)
+# Обработка выбора бюджета
+# ============================================================
+
+@bot.on_button_callback(lambda d: d.payload.startswith("budget_") and d.payload != "budget_help")
+async def step_budget(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    
+    mapping = {
+        "budget_15_25": "15-25.000 ₽ / м²",
+        "budget_25_plus": "от 25.000 ₽ / м²",
+        "budget_unknown": "Не знаю"
+    }
+    value = mapping.get(cb.payload, "Не знаю")
+    
+    current = get_user_data(user_id)
+    current["budget"] = value
+    set_user_data(user_id, current)
+    
+    # Теперь переходим к выбору способа связи
+    set_user_state(user_id, STATE_CONTACT_METHOD)
+    
+    text = (
+        "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
+        "Выберите, куда вам удобнее получить расчет и несгораемую скидку 10%? 👇"
+    )
+    kb = make_keyboard([
+        ("MAX", "contact_max"),
+        ("Telegram", "contact_telegram"),
+        ("WhatsApp", "contact_whatsapp"),
+        ("Позвоните", "contact_call"),
+        BTN_BACK
+    ], per_row=2)
+    
+    await cb.answer(text=text, keyboard=kb)
+
+# ============================================================
+# Обработка выбора способа связи
+# ============================================================
+
+@bot.on_button_callback("contact_max")
+async def contact_max_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    current = get_user_data(user_id)
+    current["contact_method"] = "MAX"
+    set_user_data(user_id, current)
+    set_user_state(user_id, STATE_PHONE)
+    
+    await cb.answer(
+        text="Отлично! Оставьте ваш номер телефона, чтобы менеджер мог связаться с вами в MAX (или напишите свой ник).",
+        keyboard=make_keyboard([BTN_BACK], per_row=1)
+    )
+
+@bot.on_button_callback("contact_telegram")
+async def contact_telegram_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    current = get_user_data(user_id)
+    current["contact_method"] = "Telegram"
+    set_user_data(user_id, current)
+    set_user_state(user_id, STATE_PHONE)
+    
+    await cb.answer(
+        text="Отлично! Оставьте ваш номер телефона или напишите ваш ник в Telegram, чтобы менеджер мог связаться с вами.",
+        keyboard=make_keyboard([BTN_BACK], per_row=1)
+    )
+
+@bot.on_button_callback("contact_whatsapp")
+async def contact_whatsapp_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    current = get_user_data(user_id)
+    current["contact_method"] = "WhatsApp"
+    set_user_data(user_id, current)
+    set_user_state(user_id, STATE_PHONE)
+    
+    await cb.answer(
+        text="Отлично! Оставьте ваш номер телефона для WhatsApp, чтобы менеджер мог связаться с вами.",
+        keyboard=make_keyboard([BTN_BACK], per_row=1)
+    )
+
+@bot.on_button_callback("contact_call")
+async def contact_call_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    current = get_user_data(user_id)
+    current["contact_method"] = "Звонок"
+    set_user_data(user_id, current)
+    set_user_state(user_id, STATE_PHONE)
+    
+    phone_number = "+79220392000"
+    await cb.answer(
+        text=f"Отлично! Оставьте ваш номер телефона, чтобы мы могли вам перезвонить. Или звоните сами: {phone_number}",
+        keyboard=make_keyboard([BTN_BACK], per_row=1)
+    )
+
+# ============================================================
+# Ввод телефона (Финал)
 # ============================================================
 
 @bot.on_message()
@@ -459,42 +566,31 @@ async def handle_text(message: aiomax.Message):
             await message.reply("Пожалуйста, напишите число (например, 45) или выберите «Не знаю» 👇", keyboard=kb)
         return
 
-    # --- Ввод телефона ---
+    # --- Ввод телефона (после выбора способа связи) ---
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
+        
+        # Проверяем, является ли это номером телефона
         if len(phone_clean) == 10:
             phone_clean = "7" + phone_clean
-            
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
-                
+            
             current = get_user_data(user_id)
             current["phone"] = phone_clean
             set_user_data(user_id, current)
+            await finalize_lead(message, user_id)
             
-            set_user_state(user_id, STATE_BUDGET)
-            
-            text_budget = (
-                "Последний вопрос. Чтобы не тратить ваше время - "
-                "уточните, какой у вас примерный бюджет на ремонт?\n\n"
-                "Так мы сможем сразу предложить то, что подходит именно вам 👇"
-            )
-            kb = make_keyboard([
-                ("От чего зависит цена?", "help_price"),
-                ("15-25.000 ₽ / м²", "budget_15_25"),
-                ("от 25.000 ₽ / м²", "budget_25_plus"),
-                ("Не знаю", "budget_unknown"),
-                BTN_BACK
-            ], per_row=2)
-            
-            await message.reply(text_budget, keyboard=kb)
         else:
-            kb = make_keyboard([BTN_BACK], per_row=1)
-            await message.reply("Не удалось распознать номер. Напишите мобильный в формате: 89991234567", keyboard=kb)
+            # Если ввели не номер, а ник (для Telegram/MAX), сохраняем как есть
+            current = get_user_data(user_id)
+            current["phone"] = text  # Сохраняем текст (ник) вместо телефона
+            set_user_data(user_id, current)
+            await finalize_lead(message, user_id)
         return
 
-    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET]
+    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD]
     if state in button_states:
         kb = make_keyboard([BTN_BACK], per_row=1)
         await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
@@ -502,51 +598,17 @@ async def handle_text(message: aiomax.Message):
         await message.reply("Нажмите /start, чтобы начать 👇")
 
 # ============================================================
-# Обработка выбора бюджета (ЗАВЕРШЕНИЕ КВИЗА)
+# ФИНАЛИЗАЦИЯ (Сохранение заявки и отправка админу)
 # ============================================================
 
-@bot.on_button_callback(lambda d: d.payload.startswith("budget_") and d.payload != "budget_help")
-async def step_budget(cb: aiomax.Callback):
-    user_id = cb.user.user_id
-    update_user_activity(user_id)
-    
-    mapping = {
-        "budget_15_25": "15-25.000 ₽ / м²",
-        "budget_25_plus": "от 25.000 ₽ / м²",
-        "budget_unknown": "Не знаю"
-    }
-    value = mapping.get(cb.payload, "Не знаю")
-    
-    current = get_user_data(user_id)
-    current["budget"] = value
-    set_user_data(user_id, current)
-    
-    # Отправляем сообщение с выбором способа связи
-    text = (
-        "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
-        "Выберите, куда вам удобнее получить расчет и несгораемую скидку 10%? 👇"
-    )
-    kb = make_keyboard([
-        ("MAX", "contact_max"),
-        ("Telegram", "contact_telegram"),
-        ("WhatsApp", "contact_whatsapp"),
-        ("Позвоните", "contact_call"),
-        BTN_BACK
-    ], per_row=2)
-    
-    await cb.answer(text=text, keyboard=kb)
-
-# ============================================================
-# Обработка выбора способа связи
-# ============================================================
-
-async def send_lead_to_admin(user_id, method):
+async def finalize_lead(message: aiomax.Message, user_id):
     data = get_user_data(user_id)
+    method = data.get("contact_method", "Не указан")
     
     admin_text = (
         f"🔔 Новая заявка на ремонт!\n"
         f"Способ связи: {method}\n\n"
-        f"📞 Телефон: {data.get('phone', '—')}\n"
+        f"📞 Телефон/Ник: {data.get('phone', '—')}\n"
         f"🏠 Тип жилья: {data.get('housing', '—')}\n"
         f"🚪 Комнаты: {data.get('rooms', '—')}\n"
         f"📐 Площадь: {data.get('area', '—')} м²\n"
@@ -572,28 +634,17 @@ async def send_lead_to_admin(user_id, method):
         data.get('timeline', ''), data.get('budget', '')
     ))
     conn.commit()
+    
+    # Отвечаем клиенту
+    kb = make_keyboard([BTN_BACK], per_row=1)
+    await message.reply(
+        text=(
+            "Спасибо! Я уже получил ваши ответы и считаю стоимость.\n\n"
+            "Мы свяжемся с вами в течение 15 минут."
+        ),
+        keyboard=kb
+    )
     clear_user(user_id)
-
-@bot.on_button_callback("contact_max")
-async def contact_max_handler(cb: aiomax.Callback):
-    await cb.answer(text="Спасибо! Наш менеджер свяжется с вами в MAX в течение 15 минут.")
-    await send_lead_to_admin(cb.user.user_id, "MAX")
-
-@bot.on_button_callback("contact_telegram")
-async def contact_telegram_handler(cb: aiomax.Callback):
-    await cb.answer(text="Спасибо! Наш менеджер свяжется с вами в Telegram в течение 15 минут.")
-    await send_lead_to_admin(cb.user.user_id, "Telegram")
-
-@bot.on_button_callback("contact_whatsapp")
-async def contact_whatsapp_handler(cb: aiomax.Callback):
-    await cb.answer(text="Спасибо! Наш менеджер свяжется с вами в WhatsApp в течение 15 минут.")
-    await send_lead_to_admin(cb.user.user_id, "WhatsApp")
-
-@bot.on_button_callback("contact_call")
-async def contact_call_handler(cb: aiomax.Callback):
-    phone_number = "+79220392000"
-    await cb.answer(text=f"Спасибо! Вы можете позвонить нам прямо сейчас: {phone_number}")
-    await send_lead_to_admin(cb.user.user_id, "Звонок")
 
 # ============================================================
 # КОМАНДА /export
@@ -652,47 +703,4 @@ async def check_inactive_users():
                 # 1-е напоминание (через 15 минут) — Забота
                 if time_passed > 900 and reminders_sent == 0:
                     text = (
-                        "👋 Здравствуйте! Вы здесь?\n\n"
-                        "Я вижу, вы начали расчет, но отвлеклись. "
-                        "Если у вас остались вопросы по ремонту, просто напишите мне. "
-                        "Или давайте продолжим — это займет всего пару минут 👇"
-                    )
-                # 2-е напоминание (через 2 часа) — Польза
-                elif time_passed > 7200 and reminders_sent == 1:
-                    text = (
-                        "⏳ Не тороплю, но напомню: расчет занимает 2 минуты.\n\n"
-                        "Если вам удобнее, я могу просто прислать примерную смету на вашу площадь "
-                        "или чек-лист «10 ошибок при ремонте». Продолжим? 👇"
-                    )
-                # 3-е напоминание (через 24 часа) — Выгода
-                elif time_passed > 86400 and reminders_sent == 2:
-                    text = (
-                        "🔥 У меня для вас новость!\n\n"
-                        "Ваш персональный промокод на скидку 10% всё еще действует. "
-                        "Давайте я досчитаю вашу стоимость и пришлю варианты? 👇"
-                    )
-
-                if text:
-                    try:
-                        await bot.send_message(text, user_id=user_id)
-                        fsm_states[user_id]["reminders_sent"] = reminders_sent + 1
-                        fsm_states[user_id]["last_active"] = current_time
-                    except Exception as e:
-                        print(f"Не удалось отправить напоминание {user_id}: {e}")
-
-# ============================================================
-# Запуск
-# ============================================================
-
-from keep_alive import start_web_server
-
-async def main():
-    asyncio.create_task(start_web_server())
-    asyncio.create_task(check_inactive_users())
-    logging.info("Запуск бота...")
-    await bot.start_polling()
-    await bot.close()
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+                        "👋 Здравствуйте!
