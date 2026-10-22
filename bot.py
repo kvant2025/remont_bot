@@ -684,7 +684,9 @@ async def check_inactive_users():
 # Запуск
 # ============================================================
 
-from keep_alive import start_web_serverasync def main():
+from keep_alive import start_web_server
+
+async def main():
     asyncio.create_task(start_web_server())
     asyncio.create_task(check_inactive_users())
     logging.info("Запуск бота...")
