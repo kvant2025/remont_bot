@@ -111,6 +111,7 @@ WELCOME_KB = make_keyboard([
 ], per_row=2)
 
 BTN_BACK = ("🏠 В главное меню", "back_to_menu")
+BTN_PREV = ("⬅️ Назад", "go_back")
 BTN_NEXT_TIP = ("➡️ Следующий совет", "next_tip")
 
 # ============================================================
@@ -131,6 +132,54 @@ async def back_to_menu_handler(cb: aiomax.Callback):
     update_user_activity(user_id)
     clear_user(user_id)
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
+
+# ============================================================
+# Кнопка "Назад" (Универсальная)
+# ============================================================
+
+@bot.on_button_callback("go_back")
+async def go_back_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    state = get_user_state(user_id)
+    
+    if state == STATE_CONTACT_METHOD:
+        # Если мы на выборе способа связи, возвращаемся к бюджету
+        set_user_state(user_id, STATE_BUDGET)
+        text = (
+            "Последний вопрос. Чтобы не тратить ваше время - "
+            "уточните, какой у вас примерный бюджет на ремонт?\n\n"
+            "Так мы сможем сразу предложить то, что подходит именно вам 👇"
+        )
+        kb = make_keyboard([
+            ("От чего зависит цена?", "help_price"),
+            ("15-25.000 ₽ / м²", "budget_15_25"),
+            ("от 25.000 ₽ / м²", "budget_25_plus"),
+            ("Не знаю", "budget_unknown"),
+            BTN_BACK
+        ], per_row=2)
+        await cb.answer(text=text, keyboard=kb)
+        
+    elif state == STATE_PHONE:
+        # Если мы на вводе телефона, возвращаемся к выбору способа связи
+        set_user_state(user_id, STATE_CONTACT_METHOD)
+        text = (
+            "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
+            "Выберите, куда вам удобнее получить расчет и несгораемую скидку 10%? 👇"
+        )
+        kb = make_keyboard([
+            ("MAX", "contact_max"),
+            ("Telegram", "contact_telegram"),
+            ("WhatsApp", "contact_whatsapp"),
+            ("Позвоните", "contact_call"),
+            BTN_BACK
+        ], per_row=2)
+        await cb.answer(text=text, keyboard=kb)
+    
+    else:
+        # В остальных случаях просто кидаем в главное меню
+        clear_user(user_id)
+        await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
 # Банк текстов (Полезные советы)
@@ -384,7 +433,6 @@ async def confirm_yes(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
     
-    # Переводим на шаг выбора бюджета (вместо запроса телефона!)
     set_user_state(user_id, STATE_BUDGET)
     
     text = (
@@ -460,7 +508,6 @@ async def step_budget(cb: aiomax.Callback):
     current["budget"] = value
     set_user_data(user_id, current)
     
-    # Теперь переходим к выбору способа связи
     set_user_state(user_id, STATE_CONTACT_METHOD)
     
     text = (
@@ -472,7 +519,7 @@ async def step_budget(cb: aiomax.Callback):
         ("Telegram", "contact_telegram"),
         ("WhatsApp", "contact_whatsapp"),
         ("Позвоните", "contact_call"),
-        BTN_BACK
+        BTN_PREV
     ], per_row=2)
     
     await cb.answer(text=text, keyboard=kb)
@@ -490,8 +537,11 @@ async def contact_max_handler(cb: aiomax.Callback):
     set_user_state(user_id, STATE_PHONE)
     
     await cb.answer(
-        text="Отлично! Оставьте ваш номер телефона, чтобы менеджер мог связаться с вами в MAX (или напишите свой ник).",
-        keyboard=make_keyboard([BTN_BACK], per_row=1)
+        text=(
+            "Отлично! Оставьте ваш номер телефона в формате **79999999999** "
+            "или напишите ваш ник в MAX в формате **@ваш_ник**, чтобы менеджер мог связаться с вами 👇"
+        ),
+        keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
 
 @bot.on_button_callback("contact_telegram")
@@ -503,8 +553,11 @@ async def contact_telegram_handler(cb: aiomax.Callback):
     set_user_state(user_id, STATE_PHONE)
     
     await cb.answer(
-        text="Отлично! Оставьте ваш номер телефона или напишите ваш ник в Telegram, чтобы менеджер мог связаться с вами.",
-        keyboard=make_keyboard([BTN_BACK], per_row=1)
+        text=(
+            "Отлично! Оставьте ваш номер телефона в формате **79999999999** "
+            "или напишите ваш ник в Telegram в формате **@ваш_ник**, чтобы менеджер мог связаться с вами 👇"
+        ),
+        keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
 
 @bot.on_button_callback("contact_whatsapp")
@@ -516,8 +569,11 @@ async def contact_whatsapp_handler(cb: aiomax.Callback):
     set_user_state(user_id, STATE_PHONE)
     
     await cb.answer(
-        text="Отлично! Оставьте ваш номер телефона для WhatsApp, чтобы менеджер мог связаться с вами.",
-        keyboard=make_keyboard([BTN_BACK], per_row=1)
+        text=(
+            "Отлично! Оставьте ваш номер телефона в формате **79999999999**, "
+            "чтобы менеджер мог связаться с вами в WhatsApp 👇"
+        ),
+        keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
 
 @bot.on_button_callback("contact_call")
@@ -530,8 +586,11 @@ async def contact_call_handler(cb: aiomax.Callback):
     
     phone_number = "+79220392000"
     await cb.answer(
-        text=f"Отлично! Оставьте ваш номер телефона, чтобы мы могли вам перезвонить. Или звоните сами: {phone_number}",
-        keyboard=make_keyboard([BTN_BACK], per_row=1)
+        text=(
+            f"Отлично! Оставьте ваш номер телефона в формате **79999999999**, "
+            f"чтобы мы могли вам перезвонить. Или звоните сами: {phone_number} 👇"
+        ),
+        keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
 
 # ============================================================
@@ -570,7 +629,6 @@ async def handle_text(message: aiomax.Message):
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
         
-        # Проверяем, является ли это номером телефона
         if len(phone_clean) == 10:
             phone_clean = "7" + phone_clean
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
@@ -583,9 +641,8 @@ async def handle_text(message: aiomax.Message):
             await finalize_lead(message, user_id)
             
         else:
-            # Если ввели не номер, а ник (для Telegram/MAX), сохраняем как есть
             current = get_user_data(user_id)
-            current["phone"] = text  # Сохраняем текст (ник) вместо телефона
+            current["phone"] = text
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
         return
@@ -700,7 +757,6 @@ async def check_inactive_users():
                 time_passed = current_time - last_active
                 text = None
                 
-                # 1-е напоминание (через 15 минут) — Забота
                 if time_passed > 900 and reminders_sent == 0:
                     text = (
                         "👋 Здравствуйте! Вы здесь?\n\n"
@@ -708,14 +764,12 @@ async def check_inactive_users():
                         "Если у вас остались вопросы по ремонту, просто напишите мне. "
                         "Или давайте продолжим — это займет всего пару минут 👇"
                     )
-                # 2-е напоминание (через 2 часа) — Польза
                 elif time_passed > 7200 and reminders_sent == 1:
                     text = (
                         "⏳ Не тороплю, но напомню: расчет занимает 2 минуты.\n\n"
                         "Если вам удобнее, я могу просто прислать примерную смету на вашу площадь "
                         "или чек-лист «10 ошибок при ремонте». Продолжим? 👇"
                     )
-                # 3-е напоминание (через 24 часа) — Выгода
                 elif time_passed > 86400 and reminders_sent == 2:
                     text = (
                         "🔥 У меня для вас новость!\n\n"
