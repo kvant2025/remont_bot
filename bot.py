@@ -68,6 +68,7 @@ def clear_user(user_id):
 STATE_HOUSING = "housing"
 STATE_ROOMS_MULTI = "rooms_multi" 
 STATE_AREA = "area"
+STATE_CEILING = "ceiling"  # <--- НОВОЕ СОСТОЯНИЕ
 STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
 STATE_CONFIRM = "confirm"
@@ -144,7 +145,7 @@ async def go_back_handler(cb: aiomax.Callback):
     state = get_user_state(user_id)
     
     if state == STATE_CONTACT_METHOD:
-        # Если мы на выборе способа связи, возвращаемся к бюджету
+        # Возвращаемся к бюджету
         set_user_state(user_id, STATE_BUDGET)
         text = (
             "Последний вопрос. Чтобы не тратить ваше время - "
@@ -161,7 +162,7 @@ async def go_back_handler(cb: aiomax.Callback):
         await cb.answer(text=text, keyboard=kb)
         
     elif state == STATE_PHONE:
-        # Если мы на вводе телефона, возвращаемся к выбору способа связи
+        # Возвращаемся к выбору способа связи
         set_user_state(user_id, STATE_CONTACT_METHOD)
         text = (
             "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
@@ -177,7 +178,7 @@ async def go_back_handler(cb: aiomax.Callback):
         await cb.answer(text=text, keyboard=kb)
     
     else:
-        # В остальных случаях просто кидаем в главное меню
+        # В остальных случаях кидаем в главное меню
         clear_user(user_id)
         await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
@@ -377,12 +378,41 @@ async def step_area_unknown(cb: aiomax.Callback):
     current = get_user_data(user_id)
     current["area"] = "Не знаю"
     set_user_data(user_id, current)
+    
+    # Переходим к потолкам
+    set_user_state(user_id, STATE_CEILING)
+    kb = make_keyboard([
+        ("До 2.7 м (стандарт)", "ceiling_27"),
+        ("2.7 - 3.2 м", "ceiling_32"),
+        ("Выше 3.2 м", "ceiling_high"),
+        ("Не знаю", "ceiling_unknown"),
+        BTN_BACK
+    ], per_row=2)
+    await cb.answer(text="Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
+
+@bot.on_button_callback(lambda d: d.payload.startswith("ceiling_"))
+async def step_ceiling(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    
+    mapping = {
+        "ceiling_27": "До 2.7 м",
+        "ceiling_32": "2.7 - 3.2 м",
+        "ceiling_high": "Выше 3.2 м",
+        "ceiling_unknown": "Не знаю"
+    }
+    value = mapping.get(cb.payload, "Не знаю")
+    
+    current = get_user_data(user_id)
+    current["ceiling"] = value
+    set_user_data(user_id, current)
     set_user_state(user_id, STATE_REPAIR)
+    
     kb = make_keyboard([
         ("Капитальный", "repair_capital"), ("Косметический", "repair_cosmetic"),
         ("Дизайнерский", "repair_design"), ("Пока не знаю", "repair_unknown"), BTN_BACK
     ], per_row=2)
-    await cb.answer(text="Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
+    await cb.answer(text="Шаг 5. Какой ремонт нужно сделать?", keyboard=kb)
 
 @bot.on_button_callback(lambda d: d.payload.startswith("repair_"))
 async def step_repair(cb: aiomax.Callback):
@@ -399,7 +429,7 @@ async def step_repair(cb: aiomax.Callback):
         ("3-4 месяца", "timeline_3_4"), ("5-6 месяцев", "timeline_5_6"),
         ("Пока не знаю", "timeline_unknown"), BTN_BACK
     ], per_row=2)
-    await cb.answer(text="Шаг 5. Когда планируете начинать ремонт?", keyboard=kb)
+    await cb.answer(text="Шаг 6. Когда планируете начинать ремонт?", keyboard=kb)
 
 @bot.on_button_callback(lambda d: d.payload.startswith("timeline_"))
 async def step_timeline(cb: aiomax.Callback):
@@ -412,12 +442,15 @@ async def step_timeline(cb: aiomax.Callback):
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_CONFIRM)
     data = get_user_data(user_id)
+    
+    # Добавили высоту потолков в сводку
     summary = (
         f"Проверьте:\n"
         f"Нужно сделать {data.get('repair_type', '—').lower()} "
         f"в {data.get('housing', '—').lower()} "
         f"({data.get('rooms', '—')}), "
-        f"площадь: {data.get('area', '—')} м². "
+        f"площадь: {data.get('area', '—')} м², "
+        f"высота потолков: {data.get('ceiling', '—')}. "
         f"Начать ремонт: {value.lower()}.\n\n"
         f"Всё верно?"
     )
@@ -425,7 +458,7 @@ async def step_timeline(cb: aiomax.Callback):
     await cb.answer(text=summary, keyboard=kb)
 
 # ============================================================
-# Обработка ПОДТВЕРЖДЕНИЯ (Всё верно)
+# Обработка ПОДТВЕРЖДЕНИЯ
 # ============================================================
 
 @bot.on_button_callback("confirm_yes")
@@ -463,7 +496,7 @@ async def confirm_edit(cb: aiomax.Callback):
     await cb.answer(text="Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
 
 # ============================================================
-# Шаг 6: Бюджет
+# Шаг 7: Бюджет
 # ============================================================
 
 @bot.on_button_callback("help_price")
@@ -487,10 +520,6 @@ async def budget_help_handler(cb: aiomax.Callback):
         BTN_BACK
     ], per_row=2)
     await cb.answer(text=text, keyboard=kb)
-
-# ============================================================
-# Обработка выбора бюджета
-# ============================================================
 
 @bot.on_button_callback(lambda d: d.payload.startswith("budget_") and d.payload != "budget_help")
 async def step_budget(cb: aiomax.Callback):
@@ -594,7 +623,7 @@ async def contact_call_handler(cb: aiomax.Callback):
     )
 
 # ============================================================
-# Ввод телефона (Финал)
+# Ввод телефона / Площади
 # ============================================================
 
 @bot.on_message()
@@ -614,12 +643,17 @@ async def handle_text(message: aiomax.Message):
             current = get_user_data(user_id)
             current["area"] = area_match.group()
             set_user_data(user_id, current)
-            set_user_state(user_id, STATE_REPAIR)
+            
+            # Переходим к потолкам
+            set_user_state(user_id, STATE_CEILING)
             kb = make_keyboard([
-                ("Капитальный", "repair_capital"), ("Косметический", "repair_cosmetic"),
-                ("Дизайнерский", "repair_design"), ("Пока не знаю", "repair_unknown"), BTN_BACK
+                ("До 2.7 м (стандарт)", "ceiling_27"),
+                ("2.7 - 3.2 м", "ceiling_32"),
+                ("Выше 3.2 м", "ceiling_high"),
+                ("Не знаю", "ceiling_unknown"),
+                BTN_BACK
             ], per_row=2)
-            await message.reply("Шаг 4. Какой ремонт нужно сделать?", keyboard=kb)
+            await message.reply("Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
         else:
             kb = make_keyboard([BTN_BACK], per_row=1)
             await message.reply("Пожалуйста, напишите число (например, 45) или выберите «Не знаю» 👇", keyboard=kb)
@@ -647,7 +681,7 @@ async def handle_text(message: aiomax.Message):
             await finalize_lead(message, user_id)
         return
 
-    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD]
+    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
     if state in button_states:
         kb = make_keyboard([BTN_BACK], per_row=1)
         await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
@@ -655,7 +689,7 @@ async def handle_text(message: aiomax.Message):
         await message.reply("Нажмите /start, чтобы начать 👇")
 
 # ============================================================
-# ФИНАЛИЗАЦИЯ (Сохранение заявки и отправка админу)
+# ФИНАЛИЗАЦИЯ
 # ============================================================
 
 async def finalize_lead(message: aiomax.Message, user_id):
@@ -669,6 +703,7 @@ async def finalize_lead(message: aiomax.Message, user_id):
         f"🏠 Тип жилья: {data.get('housing', '—')}\n"
         f"🚪 Комнаты: {data.get('rooms', '—')}\n"
         f"📐 Площадь: {data.get('area', '—')} м²\n"
+        f"📏 Высота потолков: {data.get('ceiling', '—')}\n"
         f"🔨 Тип ремонта: {data.get('repair_type', '—')}\n"
         f"📅 Сроки: {data.get('timeline', '—')}\n"
         f"💰 Бюджет: {data.get('budget', '—')}"
@@ -713,7 +748,7 @@ async def export_leads(ctx: aiomax.CommandContext):
         await ctx.reply("У вас нет прав для этой команды.")
         return
 
-    cursor_db.execute("SELECT date, phone, housing, rooms, area, repair_type, timeline, budget FROM leads ORDER BY id DESC")
+    cursor_db.execute("SELECT date, phone, housing, rooms, area, ceiling, repair_type, timeline, budget FROM leads ORDER BY id DESC")
     rows = cursor_db.fetchall()
 
     if not rows:
@@ -722,7 +757,8 @@ async def export_leads(ctx: aiomax.CommandContext):
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
-    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Тип ремонта', 'Сроки', 'Бюджет'])
+    # Добавили в CSV заголовок для потолков
+    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Потолки', 'Тип ремонта', 'Сроки', 'Бюджет'])
     for row in rows:
         writer.writerow(row)
 
@@ -743,7 +779,6 @@ async def export_leads(ctx: aiomax.CommandContext):
 # ============================================================
 
 async def check_inactive_users():
-    """Проверяет неактивных клиентов и отправляет до 3 разных напоминаний."""
     while True:
         await asyncio.sleep(60)
         current_time = time.time()
