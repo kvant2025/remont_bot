@@ -48,17 +48,18 @@ fsm_states = {}
 
 def update_user_activity(user_id):
     if user_id not in fsm_states:
-        fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
+        fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0}
     else:
         fsm_states[user_id]["last_active"] = time.time()
+        fsm_states[user_id]["reminders_sent"] = 0
 
 def get_user_state(user_id): return fsm_states.get(user_id, {}).get("state", None)
 def set_user_state(user_id, state):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
+    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0}
     fsm_states[user_id]["state"] = state
 def get_user_data(user_id): return fsm_states.get(user_id, {}).get("data", {})
 def set_user_data(user_id, data):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
+    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0}
     fsm_states[user_id]["data"] = data
 def clear_user(user_id):
     if user_id in fsm_states: del fsm_states[user_id]
@@ -540,7 +541,6 @@ async def step_budget(cb: aiomax.Callback):
 # ============================================================
 
 async def send_lead_to_admin(user_id, method):
-    """Вспомогательная функция для отправки заявки админу и в БД"""
     data = get_user_data(user_id)
     
     admin_text = (
@@ -635,6 +635,7 @@ async def export_leads(ctx: aiomax.CommandContext):
 # ============================================================
 
 async def check_inactive_users():
+    """Проверяет неактивных клиентов и отправляет до 3 разных напоминаний."""
     while True:
         await asyncio.sleep(60)
         current_time = time.time()
@@ -642,28 +643,48 @@ async def check_inactive_users():
         for user_id, data in list(fsm_states.items()):
             state = data.get("state")
             last_active = data.get("last_active", current_time)
+            reminders_sent = data.get("reminders_sent", 0)
             
-            if state is not None and (current_time - last_active) > 900:
-                text = (
-                    "👋 Здравствуйте! Вы здесь?\n\n"
-                    "Я вижу, вы начали расчет, но отвлеклись. "
-                    "Если у вас остались вопросы по ремонту, просто напишите мне. "
-                    "Или давайте продолжим — это займет всего пару минут 👇"
-                )
+            if state is not None and reminders_sent < 3:
+                time_passed = current_time - last_active
+                text = None
                 
-                try:
-                    await bot.send_message(text, user_id=user_id)
-                    fsm_states[user_id]["last_active"] = current_time
-                except Exception as e:
-                    print(f"Не удалось отправить напоминание {user_id}: {e}")
+                # 1-е напоминание (через 15 минут) — Забота
+                if time_passed > 900 and reminders_sent == 0:
+                    text = (
+                        "👋 Здравствуйте! Вы здесь?\n\n"
+                        "Я вижу, вы начали расчет, но отвлеклись. "
+                        "Если у вас остались вопросы по ремонту, просто напишите мне. "
+                        "Или давайте продолжим — это займет всего пару минут 👇"
+                    )
+                # 2-е напоминание (через 2 часа) — Польза
+                elif time_passed > 7200 and reminders_sent == 1:
+                    text = (
+                        "⏳ Не тороплю, но напомню: расчет занимает 2 минуты.\n\n"
+                        "Если вам удобнее, я могу просто прислать примерную смету на вашу площадь "
+                        "или чек-лист «10 ошибок при ремонте». Продолжим? 👇"
+                    )
+                # 3-е напоминание (через 24 часа) — Выгода
+                elif time_passed > 86400 and reminders_sent == 2:
+                    text = (
+                        "🔥 У меня для вас новость!\n\n"
+                        "Ваш персональный промокод на скидку 10% всё еще действует. "
+                        "Давайте я досчитаю вашу стоимость и пришлю варианты? 👇"
+                    )
+
+                if text:
+                    try:
+                        await bot.send_message(text, user_id=user_id)
+                        fsm_states[user_id]["reminders_sent"] = reminders_sent + 1
+                        fsm_states[user_id]["last_active"] = current_time
+                    except Exception as e:
+                        print(f"Не удалось отправить напоминание {user_id}: {e}")
 
 # ============================================================
 # Запуск
 # ============================================================
 
-from keep_alive import start_web_server
-
-async def main():
+from keep_alive import start_web_serverasync def main():
     asyncio.create_task(start_web_server())
     asyncio.create_task(check_inactive_users())
     logging.info("Запуск бота...")
