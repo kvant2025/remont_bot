@@ -703,4 +703,47 @@ async def check_inactive_users():
                 # 1-е напоминание (через 15 минут) — Забота
                 if time_passed > 900 and reminders_sent == 0:
                     text = (
-                        "👋 Здравствуйте!
+                        "👋 Здравствуйте! Вы здесь?\n\n"
+                        "Я вижу, вы начали расчет, но отвлеклись. "
+                        "Если у вас остались вопросы по ремонту, просто напишите мне. "
+                        "Или давайте продолжим — это займет всего пару минут 👇"
+                    )
+                # 2-е напоминание (через 2 часа) — Польза
+                elif time_passed > 7200 and reminders_sent == 1:
+                    text = (
+                        "⏳ Не тороплю, но напомню: расчет занимает 2 минуты.\n\n"
+                        "Если вам удобнее, я могу просто прислать примерную смету на вашу площадь "
+                        "или чек-лист «10 ошибок при ремонте». Продолжим? 👇"
+                    )
+                # 3-е напоминание (через 24 часа) — Выгода
+                elif time_passed > 86400 and reminders_sent == 2:
+                    text = (
+                        "🔥 У меня для вас новость!\n\n"
+                        "Ваш персональный промокод на скидку 10% всё еще действует. "
+                        "Давайте я досчитаю вашу стоимость и пришлю варианты? 👇"
+                    )
+
+                if text:
+                    try:
+                        await bot.send_message(text, user_id=user_id)
+                        fsm_states[user_id]["reminders_sent"] = reminders_sent + 1
+                        fsm_states[user_id]["last_active"] = current_time
+                    except Exception as e:
+                        print(f"Не удалось отправить напоминание {user_id}: {e}")
+
+# ============================================================
+# Запуск
+# ============================================================
+
+from keep_alive import start_web_server
+
+async def main():
+    asyncio.create_task(start_web_server())
+    asyncio.create_task(check_inactive_users())
+    logging.info("Запуск бота...")
+    await bot.start_polling()
+    await bot.close()
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
