@@ -68,7 +68,7 @@ def clear_user(user_id):
 STATE_HOUSING = "housing"
 STATE_ROOMS_MULTI = "rooms_multi" 
 STATE_AREA = "area"
-STATE_CEILING = "ceiling"  # <--- НОВОЕ СОСТОЯНИЕ
+STATE_CEILING = "ceiling"
 STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
 STATE_CONFIRM = "confirm"
@@ -167,7 +167,7 @@ async def go_back_handler(cb: aiomax.Callback):
         set_user_state(user_id, STATE_CONTACT_METHOD)
         text = (
             "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
-            "Выберите, куда вам удобнее получить расчет и несгораемую скидку 10%? 👇"
+            "Выберите, куда вам удобнее получить расчет и несгораемую скидку на работы 10%? 👇"
         )
         kb = make_keyboard([
             ("MAX", "contact_max"),
@@ -283,7 +283,7 @@ async def portfolio_handler(cb: aiomax.Callback):
         await cb.answer(text=text, attachments=attachments, keyboard=kb)
 
 # ============================================================
-# Квиз (Шаг 1-5)
+# Квиз (Шаг 1-6)
 # ============================================================
 
 @bot.on_button_callback("start_quiz")
@@ -444,7 +444,6 @@ async def step_timeline(cb: aiomax.Callback):
     set_user_state(user_id, STATE_CONFIRM)
     data = get_user_data(user_id)
     
-    # Добавили высоту потолков в сводку
     summary = (
         f"Проверьте:\n"
         f"Нужно сделать {data.get('repair_type', '—').lower()} "
@@ -538,11 +537,12 @@ async def step_budget(cb: aiomax.Callback):
     current["budget"] = value
     set_user_data(user_id, current)
     
+    # ПЕРЕХОДИМ К ВЫБОРУ СПОСОБА СВЯЗИ
     set_user_state(user_id, STATE_CONTACT_METHOD)
     
     text = (
         "Отлично! Я уже получил все ваши ответы и считаю стоимость.\n\n"
-        "Выберите, куда вам удобнее получить расчет и несгораемую скидку 10%? 👇"
+        "Выберите, куда вам удобнее получить расчет и несгораемую скидку на работы 10%? 👇"
     )
     kb = make_keyboard([
         ("MAX", "contact_max"),
@@ -763,7 +763,6 @@ async def export_leads(ctx: aiomax.CommandContext):
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
-    # Добавили в CSV заголовок для потолков
     writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Потолки', 'Тип ремонта', 'Сроки', 'Бюджет'])
     for row in rows:
         writer.writerow(row)
