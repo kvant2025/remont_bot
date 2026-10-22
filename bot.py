@@ -723,7 +723,7 @@ async def finalize_lead(message: aiomax.Message, user_id):
     ''', (
         current_time, user_id, data.get('phone', ''),
         data.get('housing', ''), data.get('rooms', ''),
-        data.get('area', ''), data.get('ceiling', ''), # <--- ДОБАВИЛИ ЭТО
+        data.get('area', ''), data.get('ceiling', ''),
         data.get('repair_type', ''),
         data.get('timeline', ''), data.get('budget', '')
     ))
@@ -731,7 +731,7 @@ async def finalize_lead(message: aiomax.Message, user_id):
     
     # Отвечаем клиенту
     kb = make_keyboard([BTN_BACK], per_row=1)
-        await message.reply(
+    await message.reply(
         text=(
             "Спасибо! Я уже получил ваши ответы.\n\n"
             "На основе этих данных я сделаю **предварительный** расчет. "
