@@ -717,12 +717,13 @@ async def finalize_lead(message: aiomax.Message, user_id):
     # Сохранение в БД
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor_db.execute('''
-        INSERT INTO leads (date, user_id, phone, housing, rooms, area, repair_type, timeline, budget)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO leads (date, user_id, phone, housing, rooms, area, ceiling, repair_type, timeline, budget)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         current_time, user_id, data.get('phone', ''),
         data.get('housing', ''), data.get('rooms', ''),
-        data.get('area', ''), data.get('repair_type', ''),
+        data.get('area', ''), data.get('ceiling', ''), # <--- ДОБАВИЛИ ЭТО
+        data.get('repair_type', ''),
         data.get('timeline', ''), data.get('budget', '')
     ))
     conn.commit()
