@@ -1,4 +1,5 @@
 # bot.py
+import sqlite3
 import asyncio
 import re
 import logging
@@ -9,7 +10,7 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 import aiomax
-import psycopg2 # <--- Новая библиотека для базы данных
+import psycopg2
 
 # Импортируем банк текстов
 from texts import TEXTS_BANK
@@ -22,7 +23,7 @@ load_dotenv(".env.max")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 _admin_raw = os.getenv("ADMIN_ID", "0").strip()
-DATABASE_URL = os.getenv("DATABASE_URL") # <--- Берем ссылку на базу
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not BOT_TOKEN or BOT_TOKEN == "пока_нет_токена":
     raise ValueError("Укажите реальный BOT_TOKEN в .env.max")
@@ -41,13 +42,11 @@ bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 # --- База данных (PostgreSQL / Supabase) ---
 conn = psycopg2.connect(DATABASE_URL)
 cursor_db = conn.cursor()
-# Таблицу мы уже создали вручную в Supabase, поэтому CREATE TABLE не нужен
 
 # --- FSM ---
 fsm_states = {}
 
 def update_user_activity(user_id):
-    """Обновляет время последней активности пользователя."""
     if user_id not in fsm_states:
         fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time()}
     else:
@@ -66,7 +65,7 @@ def clear_user(user_id):
 
 # --- Состояния ---
 STATE_HOUSING = "housing"
-STATE_ROOMS = "rooms"
+STATE_ROOMS_MULTI = "rooms_multi" # Новое состояние для мультивыбора
 STATE_AREA = "area"
 STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
@@ -241,7 +240,7 @@ async def start_quiz(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
     set_user_state(user_id, STATE_HOUSING)
-    set_user_data(user_id, {})
+    set_user_data(user_id, {"rooms_list": []}) # Инициализируем список комнат
     kb = make_keyboard([
         ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
         ("Дом", "housing_house"), ("Другое", "housing_other"), BTN_BACK
@@ -257,28 +256,70 @@ async def step_housing(cb: aiomax.Callback):
     current = get_user_data(user_id)
     current["housing"] = value
     set_user_data(user_id, current)
-    set_user_state(user_id, STATE_ROOMS)
+    set_user_state(user_id, STATE_ROOMS_MULTI)
+    
+    # Клавиатура для мультивыбора
     kb = make_keyboard([
-        ("Во всех", "rooms_all"), ("Гостиная", "rooms_living"), ("Спальня", "rooms_bedroom"),
-        ("Детская", "rooms_kids"), ("Кухня", "rooms_kitchen"), ("Коридор", "rooms_hallway"),
-        ("Ванная/туалет", "rooms_bathroom"), ("Балкон", "rooms_balcony"), ("Другое", "rooms_other"), BTN_BACK
-    ], per_row=3)
-    await cb.answer(text="Шаг 2. Сделать во всех комнатах или в отдельных?", keyboard=kb)
+        ("Гостиная", "room_toggle_living"), ("Спальня", "room_toggle_bedroom"),
+        ("Детская", "room_toggle_kids"), ("Кухня", "room_toggle_kitchen"),
+        ("Коридор", "room_toggle_hallway"), ("Ванная/туалет", "room_toggle_bathroom"),
+        ("Балкон", "room_toggle_balcony"), ("Другое", "room_toggle_other"),
+        ("➡️ Далее", "rooms_done"), BTN_BACK
+    ], per_row=2)
+    await cb.answer(text="Шаг 2. Сделать во всех комнатах или в отдельных?\n\n*Нажимайте на комнаты, чтобы выбрать их (или несколько)*:", keyboard=kb)
 
-@bot.on_button_callback(lambda d: d.payload.startswith("rooms_"))
-async def step_rooms(cb: aiomax.Callback):
+@bot.on_button_callback(lambda d: d.payload.startswith("room_toggle_"))
+async def toggle_room(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
+    room_code = cb.payload.replace("room_toggle_", "")
+    
     mapping = {
-        "rooms_all": "Во всех", "rooms_living": "Гостиная", "rooms_bedroom": "Спальня",
-        "rooms_kids": "Детская", "rooms_kitchen": "Кухня", "rooms_hallway": "Коридор",
-        "rooms_bathroom": "Ванная/туалет", "rooms_balcony": "Балкон", "rooms_other": "Другое",
+        "living": "Гостиная", "bedroom": "Спальня", "kids": "Детская",
+        "kitchen": "Кухня", "hallway": "Коридор", "bathroom": "Ванная/туалет",
+        "balcony": "Балкон", "other": "Другое"
     }
-    value = mapping.get(cb.payload, "Другое")
+    room_name = mapping.get(room_code, "Другое")
+    
     current = get_user_data(user_id)
-    current["rooms"] = value
+    rooms_list = current.get("rooms_list", [])
+    
+    if room_name in rooms_list:
+        rooms_list.remove(room_name) # Если уже выбрана — убираем
+    else:
+        rooms_list.append(room_name) # Если нет — добавляем
+        
+    current["rooms_list"] = rooms_list
+    set_user_data(user_id, current)
+    
+    # Обновляем клавиатуру (добавляем галочки к выбранным)
+    buttons = []
+    for code, name in mapping.items():
+        prefix = "✅ " if name in rooms_list else ""
+        buttons.append((f"{prefix}{name}", f"room_toggle_{code}"))
+    
+    buttons.append(("➡️ Далее", "rooms_done"))
+    buttons.append(BTN_BACK)
+    
+    kb = make_keyboard(buttons, per_row=2)
+    await cb.answer(text="Выберите комнаты (можно несколько):", keyboard=kb)
+
+@bot.on_button_callback("rooms_done")
+async def rooms_done(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    
+    current = get_user_data(user_id)
+    rooms_list = current.get("rooms_list", [])
+    
+    if not rooms_list:
+        await cb.answer(text="Пожалуйста, выберите хотя бы одну комнату 👇")
+        return
+        
+    current["rooms"] = ", ".join(rooms_list)
     set_user_data(user_id, current)
     set_user_state(user_id, STATE_AREA)
+    
     kb = make_keyboard([("Не знаю", "area_unknown"), BTN_BACK], per_row=1)
     await cb.answer(text="Шаг 3. Напишите общую площадь помещений в м² (примерно):", keyboard=kb)
 
@@ -355,7 +396,7 @@ async def confirm_yes(cb: aiomax.Callback):
 async def confirm_edit(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
-    set_user_data(user_id, {})
+    set_user_data(user_id, {"rooms_list": []})
     set_user_state(user_id, STATE_HOUSING)
     kb = make_keyboard([
         ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
@@ -371,26 +412,22 @@ async def confirm_edit(cb: aiomax.Callback):
 async def budget_help_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
-    
     text = (
-        "Ремонт, который мы делаем, можно разделить на следующие категории 👇\n\n"
-        "🔹 15-20.000 ₽ (чистовой ремонт без излишеств: ровно, аккуратно, практично)\n\n"
-        "🔹 20-25.000 ₽ (качественный ремонт с продуманной логикой: хорошие материалы, удобная планировка)\n\n"
-        "🔹 25-30.000 ₽ (как у дизайнеров: современные решения, скрытые элементы, визуальная целостность)\n\n"
-        "🔹 от 30.000 ₽ (интерьер с характером: нестандартные решения, сложные узлы, дорогие материалы)\n\n"
-        "**Уточните, какой у вас примерный бюджет на ремонт?** 👇"
+        "⚠️ **Важно:** Мы беремся только за ремонт помещений целиком (комната, кухня, санузел). "
+        "Мелкие работы мы не выполняем.\n\n"
+        "Что входит в наши услуги (цены за работы, без учета материалов) 👇\n\n"
+        "🔹 **Капитальный ремонт (от 15 000 до 25 000 ₽/м²)**:\n"
+        "Демонтаж старой стяжки и обоев, замена коммуникаций, выравнивание стен и откосов, заливка новой стяжки и чистовая отделка.\n\n"
+        "🔹 **Дизайнерский ремонт (от 25 000 ₽/м²)**:\n"
+        "Сложные узлы, скрытые элементы, дорогие материалы, авторский надзор.\n\n"
+        "**Уточните, какой у вас примерный бюджет на ремонт (за работы)?** 👇"
     )
-    
     kb = make_keyboard([
-        ("до 15.000 ₽ / м²", "budget_15"),
-        ("15-20.000 ₽ / м²", "budget_20"),
-        ("20-25.000 ₽ / м²", "budget_25"),
-        ("25-30.000 ₽ / м²", "budget_30"),
-        ("от 30.000 ₽ / м²", "budget_50"),
+        ("15-25.000 ₽ / м²", "budget_15_25"),
+        ("от 25.000 ₽ / м²", "budget_25_plus"),
         ("Не знаю", "budget_unknown"),
         BTN_BACK
     ], per_row=2)
-    
     await cb.answer(text=text, keyboard=kb)
 
 # ============================================================
@@ -427,22 +464,18 @@ async def handle_text(message: aiomax.Message):
 
     # --- Ввод телефона ---
     if state == STATE_PHONE:
-        phone_clean = re.sub(r"\D", "", text) # Оставляем только цифры
-        
-        # Если ввели 10 цифр (без кода страны), добавляем 7
+        phone_clean = re.sub(r"\D", "", text)
         if len(phone_clean) == 10:
             phone_clean = "7" + phone_clean
             
-        # Проверяем: 11 цифр, начинается с 7 или 8
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
             if phone_clean.startswith("8"):
-                phone_clean = "7" + phone_clean[1:] # Меняем 8 на 7
+                phone_clean = "7" + phone_clean[1:]
                 
             current = get_user_data(user_id)
             current["phone"] = phone_clean
             set_user_data(user_id, current)
             
-            # Переходим к шагу бюджета
             set_user_state(user_id, STATE_BUDGET)
             
             text_budget = (
@@ -452,11 +485,8 @@ async def handle_text(message: aiomax.Message):
             )
             kb = make_keyboard([
                 ("От чего зависит цена?", "help_price"),
-                ("до 15.000 ₽ / м²", "budget_15"),
-                ("15-20.000 ₽ / м²", "budget_20"),
-                ("20-25.000 ₽ / м²", "budget_25"),
-                ("25-30.000 ₽ / м²", "budget_30"),
-                ("от 30.000 ₽ / м²", "budget_50"),
+                ("15-25.000 ₽ / м²", "budget_15_25"),
+                ("от 25.000 ₽ / м²", "budget_25_plus"),
                 ("Не знаю", "budget_unknown"),
                 BTN_BACK
             ], per_row=2)
@@ -467,7 +497,7 @@ async def handle_text(message: aiomax.Message):
             await message.reply("Не удалось распознать номер. Напишите мобильный в формате: 89991234567", keyboard=kb)
         return
 
-    button_states = [STATE_HOUSING, STATE_ROOMS, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET]
+    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET]
     if state in button_states:
         kb = make_keyboard([BTN_BACK], per_row=1)
         await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
@@ -484,11 +514,8 @@ async def step_budget(cb: aiomax.Callback):
     update_user_activity(user_id)
     
     mapping = {
-        "budget_15": "до 15.000 ₽ / м²",
-        "budget_20": "15-20.000 ₽ / м²",
-        "budget_25": "20-25.000 ₽ / м²",
-        "budget_30": "25-30.000 ₽ / м²",
-        "budget_50": "от 30.000 ₽ / м²",
+        "budget_15_25": "15-25.000 ₽ / м²",
+        "budget_25_plus": "от 25.000 ₽ / м²",
         "budget_unknown": "Не знаю"
     }
     value = mapping.get(cb.payload, "Не знаю")
@@ -498,124 +525,7 @@ async def step_budget(cb: aiomax.Callback):
     set_user_data(user_id, current)
     data = get_user_data(user_id)
 
-    # Заявка админу
     admin_text = (
         f"🔔 Новая заявка на ремонт!\n\n"
         f"📞 Телефон: {data.get('phone', '—')}\n"
-        f"🏠 Тип жилья: {data.get('housing', '—')}\n"
-        f"🚪 Комнаты: {data.get('rooms', '—')}\n"
-        f"📐 Площадь: {data.get('area', '—')} м²\n"
-        f"🔨 Тип ремонта: {data.get('repair_type', '—')}\n"
-        f"📅 Сроки: {data.get('timeline', '—')}\n"
-        f"💰 Бюджет: {value}"
-    )
-
-    # Сохранение в БД (PostgreSQL)
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor_db.execute('''
-        INSERT INTO leads (date, user_id, phone, housing, rooms, area, repair_type, timeline, budget)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ''', (
-        current_time, user_id, data.get('phone', ''),
-        data.get('housing', ''), data.get('rooms', ''),
-        data.get('area', ''), data.get('repair_type', ''),
-        data.get('timeline', ''), value
-    ))
-    conn.commit()
-
-    # Отправка админу
-    try:
-        await bot.send_message(admin_text, user_id=ADMIN_ID)
-    except Exception as e:
-        print(f"Ошибка отправки администратору: {e}")
-
-    # Ответ клиенту
-    kb = make_keyboard([BTN_BACK], per_row=1)
-    await cb.answer(
-        text=(
-            "Спасибо! Я уже получил ваши ответы и считаю стоимость.\n\n"
-            "Мы свяжемся с вами в течение часа."
-        ),
-        keyboard=kb
-    )
-    clear_user(user_id)
-
-# ============================================================
-# КОМАНДА /export
-# ============================================================
-
-@bot.on_command("export")
-async def export_leads(ctx: aiomax.CommandContext):
-    if ctx.message.sender.user_id != ADMIN_ID:
-        await ctx.reply("У вас нет прав для этой команды.")
-        return
-
-    cursor_db.execute("SELECT date, phone, housing, rooms, area, repair_type, timeline, budget FROM leads ORDER BY id DESC")
-    rows = cursor_db.fetchall()
-
-    if not rows:
-        await ctx.reply("База данных пуста. Заявок пока нет.")
-        return
-
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=';')
-    writer.writerow(['Дата', 'Телефон', 'Тип жилья', 'Комнаты', 'Площадь', 'Тип ремонта', 'Сроки', 'Бюджет'])
-    for row in rows:
-        writer.writerow(row)
-
-    csv_bytes = output.getvalue().encode('utf-8-sig')
-    file_obj = io.BytesIO(csv_bytes)
-    file_obj.name = "leads_export.csv"
-
-    try:
-        attachment = await bot.upload_file(file_obj, filename="leads_export.csv")
-        await ctx.reply(text="📊 Выгрузка всех заявок из базы данных", attachments=attachment)
-    except Exception as e:
-        await ctx.reply(f"Ошибка при отправке файла: {e}\nПопробуем отправить текстом.")
-        text_export = "\n".join([f"{r[0]} | {r[1]} | {r[2]}" for r in rows])
-        await ctx.reply(text_export)
-
-# ============================================================
-# Фоновая проверка неактивных клиентов (Дожим)
-# ============================================================
-
-async def check_inactive_users():
-    """Раз в минуту проверяет, кто застрял, и пишет им."""
-    while True:
-        await asyncio.sleep(60)
-        current_time = time.time()
-        
-        for user_id, data in list(fsm_states.items()):
-            state = data.get("state")
-            last_active = data.get("last_active", current_time)
-            
-            if state is not None and (current_time - last_active) > 900:
-                text = (
-                    "👋 Здравствуйте! Вы здесь?\n\n"
-                    "Я вижу, вы начали расчет, но отвлеклись. "
-                    "Если у вас остались вопросы по ремонту, просто напишите мне. "
-                    "Или давайте продолжим — это займет всего пару минут 👇"
-                )
-                
-                try:
-                    await bot.send_message(text, user_id=user_id)
-                    fsm_states[user_id]["last_active"] = current_time
-                except Exception as e:
-                    print(f"Не удалось отправить напоминание {user_id}: {e}")
-
-# ============================================================
-# Запуск
-# ============================================================
-
-from keep_alive import start_web_server
-
-async def main():
-    asyncio.create_task(start_web_server())
-    asyncio.create_task(check_inactive_users())
-    logging.info("Запуск бота...")
-    await bot.start_polling()
-    await bot.close()
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+        f"🏠 Тип жилья: {data.get('
