@@ -666,7 +666,9 @@ async def handle_text(message: aiomax.Message):
         
         if len(phone_clean) == 10:
             phone_clean = "7" + phone_clean
+            
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
+            # Если номер корректный
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
             
@@ -676,10 +678,24 @@ async def handle_text(message: aiomax.Message):
             await finalize_lead(message, user_id)
             
         else:
-            current = get_user_data(user_id)
-            current["phone"] = text
-            set_user_data(user_id, current)
-            await finalize_lead(message, user_id)
+            # Если номер НЕ корректный
+            method = get_user_data(user_id).get("contact_method", "")
+            
+            # Если выбрали WhatsApp или Звонок — строго требуем телефон
+            if method in ["WhatsApp", "Звонок"]:
+                await message.reply(
+                    "Не удалось распознать номер телефона. "
+                    "Пожалуйста, введите его в формате: **79999999999** (11 цифр).",
+                    keyboard=make_keyboard([BTN_PREV], per_row=1)
+                )
+                return # Не сохраняем заявку, ждем правильный номер
+                
+            # Если выбрали MAX или Telegram — разрешаем ник (сохраняем как текст)
+            else:
+                current = get_user_data(user_id)
+                current["phone"] = text # Сохраняем то, что ввел пользователь
+                set_user_data(user_id, current)
+                await finalize_lead(message, user_id)
         return
 
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
