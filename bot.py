@@ -54,7 +54,7 @@ giga = GigaChat(
     credentials=GIGACHAT_KEY,
     scope="GIGACHAT_API_PERS",
     verify_ssl_certs=False,
-    timeout=15
+    timeout=10
 )
 
 # --- FSM ---
@@ -793,14 +793,12 @@ async def handle_text(message: aiomax.Message):
     if state is None:
         current = get_user_data(user_id)
         
-        # 1. Если пользователь еще не получал приветствие
         if not current.get("greeted"):
             current["greeted"] = True
             set_user_data(user_id, current)
             await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
             return
 
-        # 2. Если это просто вопрос — отвечаем через GigaChat
         try:
             answer = ask_gigachat_ultra(text)
             await message.reply(answer)
