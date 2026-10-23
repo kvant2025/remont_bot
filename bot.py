@@ -773,15 +773,32 @@ async def handle_text(message: aiomax.Message):
 
     # --- Свободный вопрос (GigaChat) ---
     if state is None:
-        # Если пользователь еще не получал приветствие в этой сессии (флаг greeted отсутствует)
         current = get_user_data(user_id)
+        
+        # 1. Если пользователь еще не получал приветствие в этой сессии
         if not current.get("greeted"):
             current["greeted"] = True
             set_user_data(user_id, current)
             await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
             return
 
-        # Если уже здоровались — отвечаем через GigaChat
+        # 2. Проверяем, не хочет ли клиент начать расчет
+        calc_keywords = ["рассчит", "стоимост", "сколько сто", "цена", "узнать стоим", "начать ремонт", "хочу ремонт", "сделать ремонт", "заказать ремонт"]
+        text_lower = text.lower()
+        
+        if any(keyword in text_lower for keyword in calc_keywords):
+            kb = make_keyboard([
+                ("✅ Узнать стоимость", "start_quiz"),
+                ("📸 Портфолио", "portfolio"),
+                ("💬 Отзывы", "reviews"),
+            ], per_row=2)
+            await message.reply(
+                "Отлично! Чтобы узнать точную стоимость, нажмите кнопку **«Узнать стоимость»** ниже 👇", 
+                keyboard=kb
+            )
+            return
+
+        # 3. Если это просто вопрос — отвечаем через GigaChat
         try:
             await message.reply("⏳ Секунду, я уточню информацию...")
             answer = ask_gigachat_ultra(text)
