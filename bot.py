@@ -630,8 +630,8 @@ async def contact_max_handler(cb: aiomax.Callback):
     
     await cb.answer(
         text=(
-            "Отлично! Оставьте ваш номер телефона в формате **79999999999** "
-            "или напишите ваш ник в MAX в формате **@ваш_ник**, чтобы менеджер мог связаться с вами 👇"
+            "Отлично! Оставьте ваш номер телефона в формате **79999999999**, "
+            "напишите ваш ник в формате **@ваш_ник** или просто введите ваше имя, чтобы менеджер мог связаться с вами 👇"
         ),
         keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
@@ -646,8 +646,8 @@ async def contact_telegram_handler(cb: aiomax.Callback):
     
     await cb.answer(
         text=(
-            "Отлично! Оставьте ваш номер телефона в формате **79999999999** "
-            "или напишите ваш ник в Telegram в формате **@ваш_ник**, чтобы менеджер мог связаться с вами 👇"
+            "Отлично! Оставьте ваш номер телефона в формате **79999999999**, "
+            "напишите ваш ник в формате **@ваш_ник** или просто введите ваше имя, чтобы менеджер мог связаться с вами 👇"
         ),
         keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
@@ -759,7 +759,7 @@ async def handle_text(message: aiomax.Message):
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
         
-        # Строгая проверка: 11 цифр ИЛИ ник с @
+        # 1. Если ввели 11 цифр (телефон)
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
@@ -769,8 +769,15 @@ async def handle_text(message: aiomax.Message):
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
             
+        # 2. Если ввели ник (@...)
         elif text.startswith("@"):
-            # Это ник
+            current = get_user_data(user_id)
+            current["phone"] = text
+            set_user_data(user_id, current)
+            await finalize_lead(message, user_id)
+            
+        # 3. Если ввели имя (только буквы)
+        elif text.isalpha() or (len(text) > 1 and not any(char.isdigit() for char in text) and " " not in text):
             current = get_user_data(user_id)
             current["phone"] = text
             set_user_data(user_id, current)
@@ -780,7 +787,7 @@ async def handle_text(message: aiomax.Message):
             # Это ни на что не похоже — просим заново
             await message.reply(
                 "Не удалось распознать контакт. Пожалуйста, введите ваш номер телефона (например, **79999999999**) "
-                "или ваш ник в формате **@ваш_ник**.",
+                "или ваше имя для связи.",
                 keyboard=make_keyboard([BTN_PREV], per_row=1)
             )
         return
