@@ -933,7 +933,8 @@ async def finalize_lead(message: aiomax.Message, user_id):
         ),
         keyboard=kb
     )
-    clear_user(user_id)
+    # Сбрасываем состояние, но НЕ флаг greeted, чтобы бот мог общаться
+    set_user_state(user_id, None)
 
 # ============================================================
 # КОМАНДА /export
