@@ -755,14 +755,11 @@ async def handle_text(message: aiomax.Message):
             await message.reply("Пожалуйста, напишите число (например, 15) или выберите «Не знаю» 👇", keyboard=kb)
         return
 
-      # --- Ввод телефона (после выбора способа связи) ---
+    # --- Ввод телефона (после выбора способа связи) ---
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
         
-        # Проверяем, что ввели 10 или 11 цифр (телефон)
-        if len(phone_clean) == 10:
-            phone_clean = "7" + phone_clean
-            
+        # Строгая проверка: 11 цифр ИЛИ ник с @
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
@@ -772,30 +769,20 @@ async def handle_text(message: aiomax.Message):
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
             
-        # Если это не телефон, проверяем, может это ник (должен содержать @)
-        elif "@" in text or (len(text) > 3 and not any(char.isdigit() for char in text) and " " not in text):
-            # Это похоже на ник (например, @evgeny или просто текстовый ник без цифр)
+        elif text.startswith("@"):
+            # Это ник
             current = get_user_data(user_id)
             current["phone"] = text
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
             
         else:
-            # Если это ни на что не похоже (например, "рппваыпр" или "123")
-            method = get_user_data(user_id).get("contact_method", "")
-            
-            if method in ["WhatsApp", "Звонок"]:
-                await message.reply(
-                    "Не удалось распознать номер телефона. "
-                    "Пожалуйста, введите его в формате: **79999999999** (11 цифр).",
-                    keyboard=make_keyboard([BTN_PREV], per_row=1)
-                )
-            else:
-                await message.reply(
-                    "Пожалуйста, введите ваш номер телефона (например, **79999999999**) "
-                    "или ваш ник в формате **@ваш_ник**.",
-                    keyboard=make_keyboard([BTN_PREV], per_row=1)
-                )
+            # Это ни на что не похоже — просим заново
+            await message.reply(
+                "Не удалось распознать контакт. Пожалуйста, введите ваш номер телефона (например, **79999999999**) "
+                "или ваш ник в формате **@ваш_ник**.",
+                keyboard=make_keyboard([BTN_PREV], per_row=1)
+            )
         return
 
     # --- Свободный вопрос (GigaChat) ---
@@ -819,13 +806,11 @@ async def handle_text(message: aiomax.Message):
     # --- Если клиент в середине квиза, но пишет текст ---
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
     if state in button_states:
-        # В зависимости от состояния, отправляем соответствующие кнопки
         if state == STATE_HOUSING:
             kb = make_keyboard([
                 ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
                 ("Дом", "housing_house"), ("Другое", "housing_other"), BTN_BACK
             ], per_row=2)
-            await message.reply("Пожалуйста, выберите вариант на кнопках 👇", keyboard=kb)
         elif state == STATE_ROOMS_MULTI:
             current = get_user_data(user_id)
             rooms_list = current.get("rooms_list", [])
@@ -841,7 +826,6 @@ async def handle_text(message: aiomax.Message):
             buttons.append(("➡️ Далее", "rooms_done"))
             buttons.append(BTN_BACK)
             kb = make_keyboard(buttons, per_row=2)
-            await message.reply("Пожалуйста, выберите комнаты на кнопках 👇", keyboard=kb)
         elif state == STATE_CEILING:
             kb = make_keyboard([
                 ("До 2.7 м (стандарт)", "ceiling_27"),
@@ -850,23 +834,19 @@ async def handle_text(message: aiomax.Message):
                 ("Не знаю", "ceiling_unknown"),
                 BTN_BACK
             ], per_row=2)
-            await message.reply("Пожалуйста, выберите высоту потолков на кнопках 👇", keyboard=kb)
         elif state == STATE_REPAIR:
             kb = make_keyboard([
                 ("Капитальный", "repair_capital"), ("Косметический", "repair_cosmetic"),
                 ("Дизайнерский", "repair_design"), ("Пока не знаю", "repair_unknown"), BTN_BACK
             ], per_row=2)
-            await message.reply("Пожалуйста, выберите тип ремонта на кнопках 👇", keyboard=kb)
         elif state == STATE_TIMELINE:
             kb = make_keyboard([
                 ("Этот месяц", "timeline_month"), ("1-2 месяца", "timeline_1_2"),
                 ("3-4 месяца", "timeline_3_4"), ("5-6 месяцев", "timeline_5_6"),
                 ("Пока не знаю", "timeline_unknown"), BTN_BACK
             ], per_row=2)
-            await message.reply("Пожалуйста, выберите сроки на кнопках 👇", keyboard=kb)
         elif state == STATE_CONFIRM:
             kb = make_keyboard([("Всё верно", "confirm_yes"), ("Изменить", "confirm_edit"), BTN_BACK], per_row=2)
-            await message.reply("Пожалуйста, подтвердите данные на кнопках 👇", keyboard=kb)
         elif state == STATE_BUDGET:
             kb = make_keyboard([
                 ("15-25.000 ₽ / м²", "budget_15_25"),
@@ -874,7 +854,6 @@ async def handle_text(message: aiomax.Message):
                 ("Не знаю", "budget_unknown"),
                 BTN_BACK
             ], per_row=2)
-            await message.reply("Пожалуйста, выберите бюджет на кнопках 👇", keyboard=kb)
         elif state == STATE_CONTACT_METHOD:
             kb = make_keyboard([
                 ("MAX", "contact_max"),
@@ -883,7 +862,8 @@ async def handle_text(message: aiomax.Message):
                 ("Позвоните", "contact_call"),
                 BTN_PREV
             ], per_row=2)
-            await message.reply("Пожалуйста, выберите способ связи на кнопках 👇", keyboard=kb)
+        
+        await message.reply("Пожалуйста, выберите один из вариантов на кнопках ниже 👇", keyboard=kb)
         return
 
 # ============================================================
