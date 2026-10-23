@@ -755,10 +755,11 @@ async def handle_text(message: aiomax.Message):
             await message.reply("Пожалуйста, напишите число (например, 15) или выберите «Не знаю» 👇", keyboard=kb)
         return
 
-    # --- Ввод телефона (после выбора способа связи) ---
+      # --- Ввод телефона (после выбора способа связи) ---
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
         
+        # Проверяем, что ввели 10 или 11 цифр (телефон)
         if len(phone_clean) == 10:
             phone_clean = "7" + phone_clean
             
@@ -771,7 +772,16 @@ async def handle_text(message: aiomax.Message):
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
             
+        # Если это не телефон, проверяем, может это ник (должен содержать @)
+        elif "@" in text or (len(text) > 3 and not any(char.isdigit() for char in text) and " " not in text):
+            # Это похоже на ник (например, @evgeny или просто текстовый ник без цифр)
+            current = get_user_data(user_id)
+            current["phone"] = text
+            set_user_data(user_id, current)
+            await finalize_lead(message, user_id)
+            
         else:
+            # Если это ни на что не похоже (например, "рппваыпр" или "123")
             method = get_user_data(user_id).get("contact_method", "")
             
             if method in ["WhatsApp", "Звонок"]:
@@ -780,13 +790,12 @@ async def handle_text(message: aiomax.Message):
                     "Пожалуйста, введите его в формате: **79999999999** (11 цифр).",
                     keyboard=make_keyboard([BTN_PREV], per_row=1)
                 )
-                return
-                
             else:
-                current = get_user_data(user_id)
-                current["phone"] = text
-                set_user_data(user_id, current)
-                await finalize_lead(message, user_id)
+                await message.reply(
+                    "Пожалуйста, введите ваш номер телефона (например, **79999999999**) "
+                    "или ваш ник в формате **@ваш_ник**.",
+                    keyboard=make_keyboard([BTN_PREV], per_row=1)
+                )
         return
 
     # --- Свободный вопрос (GigaChat) ---
