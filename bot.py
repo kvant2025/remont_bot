@@ -63,18 +63,18 @@ fsm_states = {}
 
 def update_user_activity(user_id):
     if user_id not in fsm_states:
-        fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0}
+        fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0, "greeted": False}
     else:
         fsm_states[user_id]["last_active"] = time.time()
         fsm_states[user_id]["reminders_sent"] = 0
 
 def get_user_state(user_id): return fsm_states.get(user_id, {}).get("state", None)
 def set_user_state(user_id, state):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0}
+    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0, "greeted": False}
     fsm_states[user_id]["state"] = state
 def get_user_data(user_id): return fsm_states.get(user_id, {}).get("data", {})
 def set_user_data(user_id, data):
-    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0}
+    if user_id not in fsm_states: fsm_states[user_id] = {"state": None, "data": {}, "last_active": time.time(), "reminders_sent": 0, "greeted": False}
     fsm_states[user_id]["data"] = data
 def clear_user(user_id):
     if user_id in fsm_states: del fsm_states[user_id]
@@ -154,6 +154,10 @@ BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
+    user_id = payload.user.id
+    # Сбрасываем флаг приветствия, чтобы показать меню
+    if user_id in fsm_states:
+        fsm_states[user_id]["greeted"] = False
     await payload.send(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 @bot.on_command("start")
@@ -161,9 +165,11 @@ async def cmd_start(ctx: aiomax.CommandContext):
     user_id = ctx.message.sender.user_id
     update_user_activity(user_id)
     
-    current = get_user_data(user_id)
+    # Сбрасываем флаг, чтобы показать меню при команде /start
+    current = fsm_states.get(user_id, {})
     current["greeted"] = False
-    set_user_data(user_id, current)
+    if user_id not in fsm_states: fsm_states[user_id] = current
+    else: fsm_states[user_id]["greeted"] = False
     
     await ctx.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
 
@@ -171,6 +177,7 @@ async def cmd_start(ctx: aiomax.CommandContext):
 async def back_to_menu_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
+    # Сбрасываем сессию, чтобы при следующем сообщении показать меню
     clear_user(user_id)
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
@@ -789,11 +796,12 @@ async def handle_text(message: aiomax.Message):
 
     # --- Свободный вопрос (GigaChat) ---
     if state is None:
-        current = get_user_data(user_id)
+        current = fsm_states.get(user_id, {})
         
+        # Если пользователь еще не получал приветствие в этой сессии
         if not current.get("greeted"):
             current["greeted"] = True
-            set_user_data(user_id, current)
+            fsm_states[user_id] = current
             await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
             return
 
