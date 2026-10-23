@@ -11,6 +11,8 @@ import random
 from datetime import datetime
 from dotenv import load_dotenv
 import aiomax
+from gigachat import GigaChat
+from gigachat.models import Chat, Messages, MessagesRole
 
 # Импортируем банк текстов
 from texts import TEXTS_BANK
@@ -24,6 +26,7 @@ load_dotenv(".env.max")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 _admin_raw = os.getenv("ADMIN_ID", "0").strip()
 DATABASE_URL = os.getenv("DATABASE_URL")
+GIGACHAT_KEY = os.getenv("GIGACHAT_KEY")
 
 if not BOT_TOKEN or BOT_TOKEN == "пока_нет_токена":
     raise ValueError("Укажите реальный BOT_TOKEN в .env.max")
@@ -31,6 +34,8 @@ if not _admin_raw.isdigit():
     raise ValueError(f"ADMIN_ID должен быть числом, сейчас: '{_admin_raw}'")
 if not DATABASE_URL:
     raise ValueError("Укажите DATABASE_URL в .env.max")
+if not GIGACHAT_KEY:
+    raise ValueError("Укажите GIGACHAT_KEY в .env.max")
 ADMIN_ID = int(_admin_raw)
 
 # ============================================================
@@ -42,6 +47,14 @@ bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 # --- База данных (PostgreSQL / Supabase) ---
 conn = psycopg2.connect(DATABASE_URL)
 cursor_db = conn.cursor()
+
+# --- Инициализация GigaChat (Ultra 3.5) ---
+giga = GigaChat(
+    base_url="https://api.giga.chat/v1",
+    credentials=GIGACHAT_KEY,
+    scope="GIGACHAT_API_PERS", # Для физлиц
+    verify_ssl_certs=False # Для Render
+)
 
 # --- FSM ---
 fsm_states = {}
@@ -87,6 +100,30 @@ def make_keyboard(buttons, per_row=2):
             row = []
     if row: kb.row(*row)
     return kb
+
+# ============================================================
+# Функция запроса к GigaChat
+# ============================================================
+
+def ask_gigachat_ultra(user_text: str) -> str:
+    """Отправляет запрос к GigaChat 3 Ultra."""
+    chat = Chat(
+        model="GigaChat-3-Ultra",
+        messages=[
+            Messages(
+                role=MessagesRole.SYSTEM, 
+                content=(
+                    "Ты вежливый консультант строительной компании по ремонту квартир в Екатеринбурге. "
+                    "Отвечай кратко и по делу. Если клиент спрашивает про цены, говори, что точная стоимость "
+                    "рассчитывается после замера, но можешь назвать вилку. На сложные вопросы про сроки "
+                    "отвечай, что все зависит от объема работ."
+                )
+            ),
+            Messages(role=MessagesRole.USER, content=user_text)
+        ]
+    )
+    response = giga.chat(chat)
+    return response.choices[0].message.content
 
 # ============================================================
 # Главное меню и приветствие
@@ -724,12 +761,21 @@ async def handle_text(message: aiomax.Message):
                 await finalize_lead(message, user_id)
         return
 
+    # --- Свободный вопрос (GigaChat) ---
+    if state is None:
+        try:
+            await message.reply("⏳ Секунду, я уточню информацию...")
+            answer = ask_gigachat_ultra(text)
+            await message.reply(answer)
+        except Exception as e:
+            print(f"Ошибка GigaChat: {e}")
+            await message.reply("Пожалуйста, нажмите /start, чтобы начать расчет 👇")
+        return
+
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
     if state in button_states:
         kb = make_keyboard([BTN_BACK], per_row=1)
         await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
-    elif state is None:
-        await message.reply("Нажмите /start, чтобы начать 👇")
 
 # ============================================================
 # ФИНАЛИЗАЦИЯ
@@ -771,7 +817,7 @@ async def finalize_lead(message: aiomax.Message, user_id):
     ''', (
         current_time, user_id, data.get('phone', ''),
         data.get('housing', ''), data.get('rooms', ''),
-        areas_str, # <--- Записываем строку с площадями в поле area
+        areas_str,
         data.get('ceiling', ''),
         data.get('repair_type', ''),
         data.get('timeline', ''), data.get('budget', '')
