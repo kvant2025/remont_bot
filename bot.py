@@ -52,8 +52,8 @@ cursor_db = conn.cursor()
 giga = GigaChat(
     base_url="https://api.giga.chat/v1",
     credentials=GIGACHAT_KEY,
-    scope="GIGACHAT_API_PERS", # Для физлиц
-    verify_ssl_certs=False # Для Render
+    scope="GIGACHAT_API_PERS",
+    verify_ssl_certs=False
 )
 
 # --- FSM ---
@@ -680,7 +680,7 @@ async def contact_call_handler(cb: aiomax.Callback):
     )
 
 # ============================================================
-# Ввод телефона / Площади / Площадей по комнатам
+# Ввод телефона / Площади / Площадей по комнатам / GigaChat
 # ============================================================
 
 @bot.on_message()
@@ -761,21 +761,23 @@ async def handle_text(message: aiomax.Message):
                 await finalize_lead(message, user_id)
         return
 
-    # --- Свободный вопрос (GigaChat) ---
+    # --- Если клиент еще не начинал диалог (нет активного состояния) ---
     if state is None:
+        await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+        return
+
+    # --- Свободный вопрос в процессе диалога (GigaChat) ---
+    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
+    
+    if state in button_states:
+        # Если клиент должен нажимать кнопки, но пишет текст — отвечаем через ИИ, не сбивая шаг
         try:
             await message.reply("⏳ Секунду, я уточню информацию...")
             answer = ask_gigachat_ultra(text)
             await message.reply(answer)
         except Exception as e:
             print(f"Ошибка GigaChat: {e}")
-            await message.reply("Пожалуйста, нажмите /start, чтобы начать расчет 👇")
-        return
-
-    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
-    if state in button_states:
-        kb = make_keyboard([BTN_BACK], per_row=1)
-        await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=kb)
+            await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=make_keyboard([BTN_BACK], per_row=1))
 
 # ============================================================
 # ФИНАЛИЗАЦИЯ
@@ -879,7 +881,6 @@ async def export_leads(ctx: aiomax.CommandContext):
 # ============================================================
 
 async def check_inactive_users():
-    """Проверяет неактивных клиентов и отправляет до 3 разных напоминаний."""
     while True:
         await asyncio.sleep(60)
         current_time = time.time()
@@ -894,7 +895,6 @@ async def check_inactive_users():
                 text = None
                 attachments = []
                 
-                # 1-е напоминание (через 15 минут) — Визуальный дожим (только 1 раз)
                 if time_passed > 900 and reminders_sent == 0:
                     text = (
                         "👋 Здравствуйте! Вы здесь?\n\n"
@@ -912,14 +912,12 @@ async def check_inactive_users():
                             except Exception as e:
                                 print(f"Ошибка загрузки фото для дожима {filename}: {e}")
 
-                # 2-е напоминание (через 2 часа) — Польза (только текст)
                 elif time_passed > 7200 and reminders_sent == 1:
                     text = (
                         "⏳ Не тороплю, но напомню: расчет занимает 2 минуты.\n\n"
                         "Если вам удобнее, я могу просто прислать примерную смету на вашу площадь "
                         "или чек-лист «10 ошибок при ремонте». Продолжим? 👇"
                     )
-                # 3-е напоминание (через 24 часа) — Выгода (только текст)
                 elif time_passed > 86400 and reminders_sent == 2:
                     text = (
                         "🔥 У меня для вас новость!\n\n"
