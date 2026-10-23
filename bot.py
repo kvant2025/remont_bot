@@ -14,8 +14,9 @@ import aiomax
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 
-# Импортируем банк текстов
+# Импортируем банк текстов и промпты
 from texts import TEXTS_BANK
+from prompts import REPAIR_CONSULTANT_PROMPT
 
 # ============================================================
 # Загрузка конфигурации
@@ -107,17 +108,11 @@ def make_keyboard(buttons, per_row=2):
 # ============================================================
 
 def ask_gigachat_ultra(user_text: str) -> str:
+    """Отправляет запрос к GigaChat 3 Ultra, используя промпт из prompts.py."""
     chat = Chat(
         model="GigaChat-3-Ultra",
         messages=[
-            Messages(
-                role=MessagesRole.SYSTEM, 
-                content=(
-                    "Ты вежливый консультант строительной компании по ремонту квартир в Екатеринбурге. "
-                    "Отвечай кратко и по делу. Если клиент спрашивает про цены, говори, что точная стоимость "
-                    "рассчитывается после замера, но можешь назвать вилку."
-                )
-            ),
+            Messages(role=MessagesRole.SYSTEM, content=REPAIR_CONSULTANT_PROMPT),
             Messages(role=MessagesRole.USER, content=user_text)
         ]
     )
@@ -144,7 +139,7 @@ WELCOME_KB = make_keyboard([
     ("✅ Узнать стоимость", "start_quiz"),
     ("📸 Портфолио", "portfolio"),
     ("💬 Отзывы", "reviews"),
-    ("📞 Связаться", "contact"),
+    ("📞 Контакты", "contact"),
     ("🔥 Полезные советы", "useful_tips"),
 ], per_row=2)
 
@@ -245,7 +240,7 @@ async def next_tip_handler(cb: aiomax.Callback):
     await cb.answer(text=tip["text"], keyboard=kb)
 
 # ============================================================
-# Связаться с исполнителем
+# Контакты
 # ============================================================
 
 @bot.on_button_callback("contact")
@@ -256,7 +251,7 @@ async def contact_handler(cb: aiomax.Callback):
     email = "79220392000@yandex.ru"
     
     text = (
-        "📞 **Связаться с исполнителем**\n\n"
+        "📞 **Контакты**\n\n"
         "Вы можете напрямую обсудить детали ремонта с нашим мастером:\n\n"
         "👤 **Имя:** Евгений\n"
         f"📱 **Телефон:** [{phone_number}](tel:{phone_number})\n\n"
@@ -776,8 +771,8 @@ async def handle_text(message: aiomax.Message):
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
             
-        # 3. Если ввели имя (только буквы)
-        elif text.isalpha() or (len(text) > 1 and not any(char.isdigit() for char in text) and " " not in text):
+        # 3. Если ввели имя (только буквы, без цифр)
+        elif text.replace(" ", "").isalpha():
             current = get_user_data(user_id)
             current["phone"] = text
             set_user_data(user_id, current)
