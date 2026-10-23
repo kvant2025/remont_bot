@@ -761,16 +761,19 @@ async def handle_text(message: aiomax.Message):
                 await finalize_lead(message, user_id)
         return
 
-    # --- Если клиент еще не начинал диалог (нет активного состояния) ---
+    # --- Свободный вопрос (GigaChat) ---
     if state is None:
-        await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+        try:
+            await message.reply("⏳ Секунду, я уточню информацию...")
+            answer = ask_gigachat_ultra(text)
+            await message.reply(answer)
+        except Exception as e:
+            print(f"Ошибка GigaChat: {e}")
+            await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
         return
 
-    # --- Свободный вопрос в процессе диалога (GigaChat) ---
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
-    
     if state in button_states:
-        # Если клиент должен нажимать кнопки, но пишет текст — отвечаем через ИИ, не сбивая шаг
         try:
             await message.reply("⏳ Секунду, я уточню информацию...")
             answer = ask_gigachat_ultra(text)
