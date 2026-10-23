@@ -115,8 +115,7 @@ def ask_gigachat_ultra(user_text: str) -> str:
                 content=(
                     "Ты вежливый консультант строительной компании по ремонту квартир в Екатеринбурге. "
                     "Отвечай кратко и по делу. Если клиент спрашивает про цены, говори, что точная стоимость "
-                    "рассчитывается после замера, но можешь назвать вилку. На сложные вопросы про сроки "
-                    "отвечай, что все зависит от объема работ. Если клиент просит меню — скажи, что нужно нажать кнопку."
+                    "рассчитывается после замера, но можешь назвать вилку."
                 )
             ),
             Messages(role=MessagesRole.USER, content=user_text)
@@ -396,7 +395,6 @@ async def toggle_room(cb: aiomax.Callback):
     buttons.append(BTN_BACK)
     
     kb = make_keyboard(buttons, per_row=2)
-    # Используем answer, чтобы обновить то же сообщение (если поддерживается), иначе просто отправит новое
     await cb.answer(text="Выберите комнаты (можно несколько):", keyboard=kb)
 
 @bot.on_button_callback("rooms_done")
@@ -795,12 +793,14 @@ async def handle_text(message: aiomax.Message):
     if state is None:
         current = get_user_data(user_id)
         
+        # 1. Если пользователь еще не получал приветствие
         if not current.get("greeted"):
             current["greeted"] = True
             set_user_data(user_id, current)
             await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
             return
 
+        # 2. Если это просто вопрос — отвечаем через GigaChat
         try:
             answer = ask_gigachat_ultra(text)
             await message.reply(answer)
@@ -812,12 +812,11 @@ async def handle_text(message: aiomax.Message):
     # --- Если клиент в середине квиза, но пишет текст ---
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
     if state in button_states:
-        try:
-            answer = ask_gigachat_ultra(text)
-            await message.reply(answer)
-        except Exception as e:
-            print(f"Ошибка GigaChat: {e}")
-            await message.reply("Пожалуйста, выберите вариант из кнопок ниже 👇", keyboard=make_keyboard([BTN_BACK], per_row=1))
+        await message.reply(
+            "Пожалуйста, выберите один из вариантов на кнопках ниже 👇",
+            keyboard=make_keyboard([BTN_BACK], per_row=1)
+        )
+        return
 
 # ============================================================
 # ФИНАЛИЗАЦИЯ
