@@ -633,7 +633,7 @@ async def contact_max_handler(cb: aiomax.Callback):
     await cb.answer(
         text=(
             "Отлично! Оставьте ваш номер телефона в формате **79999999999**, "
-            "напишите ваш ник в формате **@ваш_ник** или просто введите ваше имя, чтобы менеджер мог связаться с вами 👇"
+            "чтобы менеджер мог связаться с вами 👇"
         ),
         keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
@@ -649,7 +649,7 @@ async def contact_telegram_handler(cb: aiomax.Callback):
     await cb.answer(
         text=(
             "Отлично! Оставьте ваш номер телефона в формате **79999999999**, "
-            "напишите ваш ник в формате **@ваш_ник** или просто введите ваше имя, чтобы менеджер мог связаться с вами 👇"
+            "чтобы менеджер мог связаться с вами 👇"
         ),
         keyboard=make_keyboard([BTN_PREV], per_row=1)
     )
@@ -761,7 +761,7 @@ async def handle_text(message: aiomax.Message):
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
         
-        # 1. Если ввели 11 цифр (телефон)
+        # Строгая проверка: только 11 цифр (телефон)
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
@@ -771,25 +771,11 @@ async def handle_text(message: aiomax.Message):
             set_user_data(user_id, current)
             await finalize_lead(message, user_id)
             
-        # 2. Если ввели ник (@...)
-        elif text.startswith("@"):
-            current = get_user_data(user_id)
-            current["phone"] = text
-            set_user_data(user_id, current)
-            await finalize_lead(message, user_id)
-            
-        # 3. Если ввели имя (только буквы, без цифр)
-        elif text.replace(" ", "").isalpha():
-            current = get_user_data(user_id)
-            current["phone"] = text
-            set_user_data(user_id, current)
-            await finalize_lead(message, user_id)
-            
         else:
-            # Это ни на что не похоже — просим заново
+            # Если это не номер — просим ввести заново
             await message.reply(
-                "Не удалось распознать контакт. Пожалуйста, введите ваш номер телефона (например, **79999999999**) "
-                "или ваше имя для связи.",
+                "Не удалось распознать номер телефона. "
+                "Пожалуйста, введите его в формате: **79999999999** (11 цифр).",
                 keyboard=make_keyboard([BTN_PREV], per_row=1)
             )
         return
@@ -815,7 +801,6 @@ async def handle_text(message: aiomax.Message):
             folder_path = os.path.join("media", "portfolio")
             attachments = []
             if os.path.exists(folder_path):
-                # Берем до 5 случайных фото из портфолио
                 files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
                 if files:
                     random_files = random.sample(files, min(5, len(files)))
@@ -927,7 +912,7 @@ async def finalize_lead(message: aiomax.Message, user_id):
     admin_text = (
         f"🔔 Новая заявка на ремонт!\n"
         f"Способ связи: {method}\n\n"
-        f"📞 Телефон/Ник: {data.get('phone', '—')}\n"
+        f"📞 Телефон: {data.get('phone', '—')}\n"
         f"🏠 Тип жилья: {data.get('housing', '—')}\n"
         f"🚪 Комнаты: {data.get('rooms', '—')}\n"
         f"📐 Площади: {areas_str}\n"
