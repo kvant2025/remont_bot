@@ -67,7 +67,7 @@ def clear_user(user_id):
 # --- Состояния ---
 STATE_HOUSING = "housing"
 STATE_ROOMS_MULTI = "rooms_multi" 
-STATE_ROOM_AREA = "room_area" # <--- НОВОЕ СОСТОЯНИЕ для ввода площади каждой комнаты
+STATE_ROOM_AREA = "room_area" 
 STATE_CEILING = "ceiling"
 STATE_REPAIR = "repair"
 STATE_TIMELINE = "timeline"
@@ -833,6 +833,7 @@ async def export_leads(ctx: aiomax.CommandContext):
 # ============================================================
 
 async def check_inactive_users():
+    """Проверяет неактивных клиентов и отправляет до 3 разных напоминаний."""
     while True:
         await asyncio.sleep(60)
         current_time = time.time()
@@ -845,20 +846,34 @@ async def check_inactive_users():
             if state is not None and reminders_sent < 3:
                 time_passed = current_time - last_active
                 text = None
+                attachments = []
                 
+                # 1-е напоминание (через 15 минут) — Визуальный дожим (только 1 раз)
                 if time_passed > 900 and reminders_sent == 0:
                     text = (
                         "👋 Здравствуйте! Вы здесь?\n\n"
                         "Я вижу, вы начали расчет, но отвлеклись. "
-                        "Если у вас остались вопросы по ремонту, просто напишите мне. "
-                        "Или давайте продолжим — это займет всего пару минут 👇"
+                        "Вот фотографии ремонтов, которые мы сделали за последнее время 👇\n\n"
+                        "Давайте продолжим — это займет всего пару минут."
                     )
+                    folder_path = os.path.join("media", "portfolio")
+                    if os.path.exists(folder_path):
+                        files = [f for f in sorted(os.listdir(folder_path)) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:5]
+                        for filename in files:
+                            try:
+                                attachment = await bot.upload_image(os.path.join(folder_path, filename))
+                                attachments.append(attachment)
+                            except Exception as e:
+                                print(f"Ошибка загрузки фото для дожима {filename}: {e}")
+
+                # 2-е напоминание (через 2 часа) — Польза (только текст)
                 elif time_passed > 7200 and reminders_sent == 1:
                     text = (
                         "⏳ Не тороплю, но напомню: расчет занимает 2 минуты.\n\n"
                         "Если вам удобнее, я могу просто прислать примерную смету на вашу площадь "
                         "или чек-лист «10 ошибок при ремонте». Продолжим? 👇"
                     )
+                # 3-е напоминание (через 24 часа) — Выгода (только текст)
                 elif time_passed > 86400 and reminders_sent == 2:
                     text = (
                         "🔥 У меня для вас новость!\n\n"
@@ -868,7 +883,11 @@ async def check_inactive_users():
 
                 if text:
                     try:
-                        await bot.send_message(text, user_id=user_id)
+                        if attachments:
+                            await bot.send_message(text, user_id=user_id, attachments=attachments)
+                        else:
+                            await bot.send_message(text, user_id=user_id)
+                            
                         fsm_states[user_id]["reminders_sent"] = reminders_sent + 1
                         fsm_states[user_id]["last_active"] = current_time
                     except Exception as e:
