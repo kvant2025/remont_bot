@@ -48,12 +48,13 @@ bot = aiomax.Bot(BOT_TOKEN, default_format="markdown", use_certificate=True)
 conn = psycopg2.connect(DATABASE_URL)
 cursor_db = conn.cursor()
 
-# --- Инициализация GigaChat (Ultra 3.5) ---
+# --- Инициализация GigaChat (Ultra 3.5) с таймаутом ---
 giga = GigaChat(
     base_url="https://api.giga.chat/v1",
     credentials=GIGACHAT_KEY,
     scope="GIGACHAT_API_PERS",
-    verify_ssl_certs=False
+    verify_ssl_certs=False,
+    timeout=15 # <--- Таймаут 15 секунд, чтобы не зависало
 )
 
 # --- FSM ---
@@ -116,7 +117,7 @@ def ask_gigachat_ultra(user_text: str) -> str:
                     "Ты вежливый консультант строительной компании по ремонту квартир в Екатеринбурге. "
                     "Отвечай кратко и по делу. Если клиент спрашивает про цены, говори, что точная стоимость "
                     "рассчитывается после замера, но можешь назвать вилку. На сложные вопросы про сроки "
-                    "отвечай, что все зависит от объема работ."
+                    "отвечай, что все зависит от объема работ. Если клиент просит меню — скажи, что нужно нажать кнопку."
                 )
             ),
             Messages(role=MessagesRole.USER, content=user_text)
@@ -160,7 +161,6 @@ BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
-    # При первом запуске показываем меню
     await payload.send(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 @bot.on_command("start")
@@ -168,7 +168,6 @@ async def cmd_start(ctx: aiomax.CommandContext):
     user_id = ctx.message.sender.user_id
     update_user_activity(user_id)
     
-    # Сбрасываем флаг greeted, чтобы при следующем сообщении показать меню
     current = get_user_data(user_id)
     current["greeted"] = False
     set_user_data(user_id, current)
@@ -180,7 +179,6 @@ async def back_to_menu_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
     clear_user(user_id)
-    # После сброса показываем меню
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
@@ -703,6 +701,28 @@ async def handle_text(message: aiomax.Message):
     if not text:
         return
 
+    # --- УМНЫЕ КОМАНДЫ (работают в любом состоянии) ---
+    text_lower = text.lower()
+    
+    # 1. Возврат в меню (по тексту)
+    if any(word in text_lower for word in ["верни", "меню", "назад в меню", "главное меню"]):
+        clear_user(user_id)
+        await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+        return
+
+    # 2. Начало расчета (по тексту)
+    calc_keywords = ["рассчит", "стоимост", "сколько сто", "цена", "узнать стоим", "начать ремонт", "хочу ремонт", "сделать ремонт", "заказать ремонт", "мне нужен расчет"]
+    if any(keyword in text_lower for keyword in calc_keywords):
+        set_user_state(user_id, STATE_HOUSING)
+        set_user_data(user_id, {"rooms_list": []})
+        
+        kb = make_keyboard([
+            ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
+            ("Дом", "housing_house"), ("Другое", "housing_other"), BTN_BACK
+        ], per_row=2)
+        await message.reply("Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
+        return
+
     # --- Ввод площади для конкретной комнаты ---
     if state == STATE_ROOM_AREA:
         area_match = re.search(r"\d+", text)
@@ -775,32 +795,15 @@ async def handle_text(message: aiomax.Message):
     if state is None:
         current = get_user_data(user_id)
         
-        # 1. Если пользователь еще не получал приветствие в этой сессии
+        # 1. Если пользователь еще не получал приветствие
         if not current.get("greeted"):
             current["greeted"] = True
             set_user_data(user_id, current)
             await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
             return
 
-        # 2. Проверяем, не хочет ли клиент начать расчет
-        calc_keywords = ["рассчит", "стоимост", "сколько сто", "цена", "узнать стоим", "начать ремонт", "хочу ремонт", "сделать ремонт", "заказать ремонт"]
-        text_lower = text.lower()
-        
-        if any(keyword in text_lower for keyword in calc_keywords):
-            kb = make_keyboard([
-                ("✅ Узнать стоимость", "start_quiz"),
-                ("📸 Портфолио", "portfolio"),
-                ("💬 Отзывы", "reviews"),
-            ], per_row=2)
-            await message.reply(
-                "Отлично! Чтобы узнать точную стоимость, нажмите кнопку **«Узнать стоимость»** ниже 👇", 
-                keyboard=kb
-            )
-            return
-
-        # 3. Если это просто вопрос — отвечаем через GigaChat
+        # 2. Если это просто вопрос — отвечаем через GigaChat (БЕЗ сообщения "Секунду")
         try:
-            await message.reply("⏳ Секунду, я уточню информацию...")
             answer = ask_gigachat_ultra(text)
             await message.reply(answer)
         except Exception as e:
@@ -812,7 +815,6 @@ async def handle_text(message: aiomax.Message):
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
     if state in button_states:
         try:
-            await message.reply("⏳ Секунду, я уточню информацию...")
             answer = ask_gigachat_ultra(text)
             await message.reply(answer)
         except Exception as e:
