@@ -160,10 +160,19 @@ BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
+    # При первом запуске показываем меню
     await payload.send(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 @bot.on_command("start")
 async def cmd_start(ctx: aiomax.CommandContext):
+    user_id = ctx.message.sender.user_id
+    update_user_activity(user_id)
+    
+    # Сбрасываем флаг greeted, чтобы при следующем сообщении показать меню
+    current = get_user_data(user_id)
+    current["greeted"] = False
+    set_user_data(user_id, current)
+    
     await ctx.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 @bot.on_button_callback("back_to_menu")
@@ -171,6 +180,7 @@ async def back_to_menu_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
     clear_user(user_id)
+    # После сброса показываем меню
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
@@ -763,15 +773,25 @@ async def handle_text(message: aiomax.Message):
 
     # --- Свободный вопрос (GigaChat) ---
     if state is None:
+        # Если пользователь еще не получал приветствие в этой сессии (флаг greeted отсутствует)
+        current = get_user_data(user_id)
+        if not current.get("greeted"):
+            current["greeted"] = True
+            set_user_data(user_id, current)
+            await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+            return
+
+        # Если уже здоровались — отвечаем через GigaChat
         try:
             await message.reply("⏳ Секунду, я уточню информацию...")
             answer = ask_gigachat_ultra(text)
             await message.reply(answer)
         except Exception as e:
             print(f"Ошибка GigaChat: {e}")
-            await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+            await message.reply("Пожалуйста, нажмите /start, чтобы начать 👇")
         return
 
+    # --- Если клиент в середине квиза, но пишет текст ---
     button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
     if state in button_states:
         try:
