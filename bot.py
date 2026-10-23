@@ -798,7 +798,7 @@ async def handle_text(message: aiomax.Message):
     if state is None:
         current = fsm_states.get(user_id, {})
         
-        # Если пользователь еще не получал приветствие
+        # Если пользователь еще не получал приветствие в этой сессии
         if not current.get("greeted"):
             current["greeted"] = True
             fsm_states[user_id] = current
@@ -828,12 +828,15 @@ async def handle_text(message: aiomax.Message):
             
             if attachments:
                 await message.reply(
-                    "Вот несколько примеров наших объектов. Если хотите узнать стоимость ремонта — нажмите «Узнать стоимость» 👇",
+                    "Вот несколько примеров наших объектов. Если хотите узнать стоимость ремонта — нажмите кнопку **«Узнать стоимость»** или напишите «Узнать стоимость» 👇",
                     attachments=attachments,
                     keyboard=make_keyboard([("✅ Узнать стоимость", "start_quiz"), BTN_BACK], per_row=1)
                 )
             else:
-                await message.reply("Фотографии временно недоступны. Пожалуйста, нажмите «Узнать стоимость», чтобы мы рассчитали ваш ремонт 👇")
+                await message.reply(
+                    "Фотографии временно недоступны. Пожалуйста, нажмите кнопку **«Узнать стоимость»** или напишите «Узнать стоимость», чтобы мы рассчитали ваш ремонт 👇",
+                    keyboard=make_keyboard([("✅ Узнать стоимость", "start_quiz"), BTN_BACK], per_row=1)
+                )
             return
 
         # Если фото не просят — отвечаем через GigaChat
@@ -843,6 +846,69 @@ async def handle_text(message: aiomax.Message):
         except Exception as e:
             print(f"Ошибка GigaChat: {e}")
             await message.reply("Пожалуйста, нажмите /start, чтобы начать 👇")
+        return
+
+    # --- Если клиент в середине квиза, но пишет текст ---
+    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
+    if state in button_states:
+        if state == STATE_HOUSING:
+            kb = make_keyboard([
+                ("Новостройка", "housing_new"), ("Вторичка", "housing_secondary"),
+                ("Дом", "housing_house"), ("Другое", "housing_other"), BTN_BACK
+            ], per_row=2)
+        elif state == STATE_ROOMS_MULTI:
+            current = get_user_data(user_id)
+            rooms_list = current.get("rooms_list", [])
+            mapping = {
+                "living": "Гостиная", "bedroom": "Спальня", "kids": "Детская",
+                "kitchen": "Кухня", "hallway": "Коридор", "bathroom": "Ванная/туалет",
+                "balcony": "Балкон", "other": "Другое"
+            }
+            buttons = []
+            for code, name in mapping.items():
+                prefix = "✅ " if name in rooms_list else ""
+                buttons.append((f"{prefix}{name}", f"room_toggle_{code}"))
+            buttons.append(("➡️ Далее", "rooms_done"))
+            buttons.append(BTN_BACK)
+            kb = make_keyboard(buttons, per_row=2)
+        elif state == STATE_CEILING:
+            kb = make_keyboard([
+                ("До 2.7 м (стандарт)", "ceiling_27"),
+                ("2.7 - 3.2 м", "ceiling_32"),
+                ("Выше 3.2 м", "ceiling_high"),
+                ("Не знаю", "ceiling_unknown"),
+                BTN_BACK
+            ], per_row=2)
+        elif state == STATE_REPAIR:
+            kb = make_keyboard([
+                ("Капитальный", "repair_capital"), ("Косметический", "repair_cosmetic"),
+                ("Дизайнерский", "repair_design"), ("Пока не знаю", "repair_unknown"), BTN_BACK
+            ], per_row=2)
+        elif state == STATE_TIMELINE:
+            kb = make_keyboard([
+                ("Этот месяц", "timeline_month"), ("1-2 месяца", "timeline_1_2"),
+                ("3-4 месяца", "timeline_3_4"), ("5-6 месяцев", "timeline_5_6"),
+                ("Пока не знаю", "timeline_unknown"), BTN_BACK
+            ], per_row=2)
+        elif state == STATE_CONFIRM:
+            kb = make_keyboard([("Всё верно", "confirm_yes"), ("Изменить", "confirm_edit"), BTN_BACK], per_row=2)
+        elif state == STATE_BUDGET:
+            kb = make_keyboard([
+                ("15-25.000 ₽ / м²", "budget_15_25"),
+                ("от 25.000 ₽ / м²", "budget_25_plus"),
+                ("Не знаю", "budget_unknown"),
+                BTN_BACK
+            ], per_row=2)
+        elif state == STATE_CONTACT_METHOD:
+            kb = make_keyboard([
+                ("MAX", "contact_max"),
+                ("Telegram", "contact_telegram"),
+                ("WhatsApp", "contact_whatsapp"),
+                ("Позвоните", "contact_call"),
+                BTN_PREV
+            ], per_row=2)
+        
+        await message.reply("Пожалуйста, выберите один из вариантов на кнопках ниже 👇", keyboard=kb)
         return
 
 # ============================================================
