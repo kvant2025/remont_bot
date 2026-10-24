@@ -1,8 +1,5 @@
 aiomax
 python-dotenv
 aiohttp
-aiomax
-python-dotenv
-aiohttp
 psycopg2-binary
 gigachat
