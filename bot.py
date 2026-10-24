@@ -107,7 +107,7 @@ def make_keyboard(buttons, per_row=2):
 # Функция запроса к GigaChat
 # ============================================================
 
-def ask_gigachat_ultra(user_text: str) -> str:
+async def ask_gigachat_ultra(user_text: str) -> str:
     """Отправляет запрос к GigaChat 3 Ultra, используя промпт из prompts.py."""
     chat = Chat(
         model="GigaChat-3-Ultra",
@@ -116,7 +116,7 @@ def ask_gigachat_ultra(user_text: str) -> str:
             Messages(role=MessagesRole.USER, content=user_text)
         ]
     )
-    response = giga.chat(chat)
+    response = await asyncio.to_thread(giga.chat, chat)
     return response.choices[0].message.content
 
 # ============================================================
@@ -826,7 +826,7 @@ async def handle_text(message: aiomax.Message):
 
         # Если фото не просят — отвечаем через GigaChat
         try:
-            answer = ask_gigachat_ultra(text)
+            answer = await ask_gigachat_ultra(text)
             await message.reply(answer)
         except Exception as e:
             print(f"Ошибка GigaChat: {e}")
