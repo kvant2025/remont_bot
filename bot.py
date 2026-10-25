@@ -790,7 +790,7 @@ async def handle_text(message: aiomax.Message):
             fsm_states[user_id] = current
             await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
             return
-
+        
         # Проверяем, не просит ли клиент фото
         photo_keywords = ["фото", "покажи", "пример", "работ", "портфолио", "как выглядит", "визуал"]
         text_lower = text.lower()
