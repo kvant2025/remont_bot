@@ -155,9 +155,12 @@ BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
     user_id = payload.user.id
-    # Сбрасываем флаг приветствия, чтобы показать меню
-    if user_id in fsm_states:
-        fsm_states[user_id]["greeted"] = False
+
+    # При каждом запуске показываем главное меню и начинаем с чистого состояния.
+    update_user_activity(user_id)
+    clear_user(user_id)
+    update_user_activity(user_id)
+
     await payload.send(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 @bot.on_command("start")
