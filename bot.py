@@ -576,9 +576,14 @@ async def rooms_done(cb: aiomax.Callback):
     kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
 
     await cb.answer(
-        text=f"Шаг 3. Какая площадь у комнаты **{room}**? (в м²)",
+        text=(
+            f"Шаг 3. Какая площадь у комнаты **{room}**? (в м²)\n\n"
+            "Пожалуйста, напишите число (например, 15) "
+            "или выберите «Не знаю» 👇"
+        ),
         keyboard=kb
     )
+
 
 
 @bot.on_button_callback("area_unknown")
