@@ -154,7 +154,7 @@ BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
-    user_id = payload.user.id
+    user_id = payload.user.user_id
 
     # При каждом запуске показываем главное меню и начинаем с чистого состояния.
     update_user_activity(user_id)
