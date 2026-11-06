@@ -956,8 +956,11 @@ async def finalize_lead(message: aiomax.Message, user_id):
         ),
         keyboard=kb
     )
-    # Сбрасываем состояние, но НЕ флаг greeted, чтобы бот мог общаться
-    set_user_state(user_id, None)
+    
+    # ВАЖНО: Полностью удаляем сессию пользователя, чтобы фоновый дожим
+    # не отправлял сообщения "Вы отвлеклись" или "Давайте досчитаем".
+    if user_id in fsm_states:
+        del fsm_states[user_id]
 
 # ============================================================
 # КОМАНДА /export
