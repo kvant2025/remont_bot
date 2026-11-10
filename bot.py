@@ -91,6 +91,14 @@ STATE_BUDGET = "budget"
 STATE_CONTACT_METHOD = "contact_method"
 STATE_PHONE = "phone"
 
+# --- НОВОЕ: Состояния для дизайн-проекта ---
+STATE_DESIGN_OBJECT = "design_object"
+STATE_DESIGN_AREA = "design_area"
+STATE_DESIGN_CONDITION = "design_condition"
+STATE_DESIGN_SCOPE = "design_scope"
+STATE_DESIGN_CONTACT = "design_contact"
+STATE_DESIGN_PHONE = "design_phone"
+
 # --- Клавиатура ---
 def make_keyboard(buttons, per_row=2):
     kb = aiomax.buttons.KeyboardBuilder()
@@ -137,6 +145,7 @@ WELCOME_TEXT = (
 
 WELCOME_KB = make_keyboard([
     ("✅ Узнать стоимость", "start_quiz"),
+    ("🎨 Дизайн-проект", "design_start"), # НОВОЕ: Кнопка дизайн-проекта
     ("📸 Портфолио", "portfolio"),
     ("💬 Отзывы", "reviews"),
     ("📞 Контакты", "contact"),
@@ -154,14 +163,11 @@ BTN_UNKNOWN_AREA = ("Не знаю", "area_unknown")
 
 @bot.on_bot_start()
 async def bot_start_handler(payload: aiomax.BotStartPayload):
-    user_id = payload.user.user_id
+    user_id = payload.user.id
 
-    # При каждом запуске показываем главное меню и начинаем с чистого состояния.
     update_user_activity(user_id)
     clear_user(user_id)
-    current = fsm_states.get(user_id, {})
-    current["greeted"] = True
-    fsm_states[user_id] = current
+    update_user_activity(user_id)
 
     await payload.send(WELCOME_TEXT, keyboard=WELCOME_KB)
 
@@ -170,22 +176,18 @@ async def cmd_start(ctx: aiomax.CommandContext):
     user_id = ctx.message.sender.user_id
     update_user_activity(user_id)
     
-    # Отмечаем, что приветствие уже отправлено командой /start
     current = fsm_states.get(user_id, {})
-    current["greeted"] = True
-    fsm_states[user_id] = current
-
+    current["greeted"] = False
+    if user_id not in fsm_states: fsm_states[user_id] = current
+    else: fsm_states[user_id]["greeted"] = False
+    
     await ctx.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
 
 @bot.on_button_callback("back_to_menu")
 async def back_to_menu_handler(cb: aiomax.Callback):
     user_id = cb.user.user_id
     update_user_activity(user_id)
-    # Сбрасываем сценарий и отмечаем, что меню уже показано
     clear_user(user_id)
-    current = fsm_states.get(user_id, {})
-    current["greeted"] = True
-    fsm_states[user_id] = current
     await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
 
 # ============================================================
@@ -228,10 +230,205 @@ async def go_back_handler(cb: aiomax.Callback):
             BTN_BACK
         ], per_row=2)
         await cb.answer(text=text, keyboard=kb)
+
+    # НОВОЕ: Навигация назад для дизайн-проекта
+    elif state == STATE_DESIGN_PHONE:
+        set_user_state(user_id, STATE_DESIGN_CONTACT)
+        await cb.answer(
+            text="Куда вам удобнее получить расчет дизайн-проекта?",
+            keyboard=make_keyboard([
+                ("MAX", "design_contact_max"), ("Telegram", "design_contact_tg"),
+                ("WhatsApp", "design_contact_wa"), ("Позвоните", "design_contact_call"),
+                BTN_BACK
+            ], per_row=2)
+        )
+    elif state == STATE_DESIGN_CONTACT:
+        set_user_state(user_id, STATE_DESIGN_SCOPE)
+        await cb.answer(
+            text="Шаг 4. Что именно нужно разработать?",
+            keyboard=make_keyboard([
+                ("Полный с инженеркой", "design_scope_full"),
+                ("Для ремонта под ключ", "design_scope_turnkey"),
+                ("Технический (мин. визуал)", "design_scope_tech"),
+                BTN_BACK
+            ], per_row=1)
+        )
+    elif state == STATE_DESIGN_SCOPE:
+        set_user_state(user_id, STATE_DESIGN_CONDITION)
+        await cb.answer(
+            text="Шаг 3. В каком состоянии сейчас помещение?",
+            keyboard=make_keyboard([
+                ("Без отделки", "design_cond_none"), ("Черновая отделка", "design_cond_rough"),
+                ("Чистовая отделка", "design_cond_fine"), ("Требуется реконструкция", "design_cond_recon"),
+                BTN_BACK
+            ], per_row=2)
+        )
+    elif state == STATE_DESIGN_CONDITION:
+        set_user_state(user_id, STATE_DESIGN_AREA)
+        await cb.answer(
+            text="Шаг 2. Какая общая площадь квартиры? (в м²)\n\nНапишите число (например, 45) или выберите вариант ниже 👇",
+            keyboard=make_keyboard([BTN_BACK], per_row=1)
+        )
+    elif state == STATE_DESIGN_AREA:
+        set_user_state(user_id, STATE_DESIGN_OBJECT)
+        await cb.answer(
+            text="Шаг 1. Какой у вас объект?",
+            keyboard=make_keyboard([
+                ("Новостройка", "design_obj_new"), ("Вторичное жильё", "design_obj_secondary"),
+                ("Дом/таунхаус", "design_obj_house"), BTN_BACK
+            ], per_row=2)
+        )
     
     else:
         clear_user(user_id)
         await cb.answer(text=WELCOME_TEXT, keyboard=WELCOME_KB)
+
+# ============================================================
+# НОВОЕ: ВЕТКА ДИЗАЙН-ПРОЕКТА
+# ============================================================
+
+DESIGN_MENU_TEXT = (
+    "🎨 **Дизайн-проект и инженерия**\n\n"
+    "Мы разрабатываем полный комплект чертежей для вашего ремонта. "
+    "Это не просто красивые картинки, а рабочие решения с размерами и привязками.\n\n"
+    "**Что входит в проект:**\n"
+    "➤ 3D-визуализации\n"
+    "➤ Планы демонтажа и возведения перегородок\n"
+    "➤ План расстановки мебели и развертки стен\n"
+    "➤ **Электрика:** розетки, щит, УЗО, схема нагрузок\n"
+    "➤ **Освещение:** сценарии, диммеры, проходные выключатели\n"
+    "➤ **Вода и канализация:** коллекторные узлы, фильтры, трассы\n"
+    "➤ **Вентиляция:** приток, вытяжка, трассы кондиционеров\n"
+    "➤ **Слаботочка:** умный дом, видеонаблюдение, датчики протечки\n\n"
+    "Хотите рассчитать стоимость проекта под вашу квартиру? 👇"
+)
+
+DESIGN_FINAL_TEXT = (
+    "Спасибо! Я зафиксировал параметры вашего дизайн-проекта.\n\n"
+    "📏 **Что дальше?**\n"
+    "Для точной оценки и разработки нам понадобится **план квартиры** (PDF, DWG или фото от застройщика/БТИ).\n\n"
+    "Менеджер свяжется с вами в течение часа, чтобы обсудить детали и попросить план."
+)
+
+@bot.on_button_callback("design_start")
+async def design_start_handler(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    
+    kb = make_keyboard([
+        ("✅ Рассчитать дизайн-проект", "design_quiz_start"),
+        ("📖 Подробнее об инженерке", "design_info"),
+        BTN_BACK
+    ], per_row=1)
+    
+    await cb.answer(text=DESIGN_MENU_TEXT, keyboard=kb)
+
+@bot.on_button_callback("design_info")
+async def design_info_handler(cb: aiomax.Callback):
+    text = (
+        "🛠 **Инженерные системы в проекте:**\n\n"
+        "**Электрика:** расчет нагрузок, схема щита, УЗО.\n"
+        "**Вода:** коллекторная разводка, фильтры, защита от протечек.\n"
+        "**Вентиляция:** расчет воздухообмена, трассы кондиционеров.\n"
+        "**Слаботочка:** умный дом, видеонаблюдение, интернет.\n\n"
+        "Все схемы делаются с привязками и спецификациями оборудования."
+    )
+    kb = make_keyboard([("✅ Рассчитать дизайн-проект", "design_quiz_start"), BTN_BACK], per_row=1)
+    await cb.answer(text=text, keyboard=kb)
+
+@bot.on_button_callback("design_quiz_start")
+async def design_quiz_start(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    set_user_state(user_id, STATE_DESIGN_OBJECT)
+    set_user_data(user_id, {"is_design": True})
+    
+    kb = make_keyboard([
+        ("Новостройка", "design_obj_new"),
+        ("Вторичное жильё", "design_obj_secondary"),
+        ("Дом/таунхаус", "design_obj_house"),
+        BTN_BACK
+    ], per_row=2)
+    await cb.answer(text="Шаг 1. Какой у вас объект?", keyboard=kb)
+
+@bot.on_button_callback(lambda d: d.payload.startswith("design_obj_"))
+async def design_step_object(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    mapping = {"design_obj_new": "Новостройка", "design_obj_secondary": "Вторичка", "design_obj_house": "Дом"}
+    current = get_user_data(user_id)
+    current["design_object"] = mapping.get(cb.payload, "Другое")
+    set_user_data(user_id, current)
+    
+    set_user_state(user_id, STATE_DESIGN_AREA)
+    kb = make_keyboard([BTN_BACK], per_row=1)
+    await cb.answer(text="Шаг 2. Какая общая площадь квартиры? (в м²)\n\nНапишите число (например, 45) или выберите вариант ниже 👇", keyboard=kb)
+
+@bot.on_button_callback(lambda d: d.payload.startswith("design_cond_"))
+async def design_step_condition(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    mapping = {
+        "design_cond_none": "Без отделки", 
+        "design_cond_rough": "Черновая", 
+        "design_cond_fine": "Чистовая", 
+        "design_cond_recon": "Требуется реконструкция"
+    }
+    current = get_user_data(user_id)
+    current["design_condition"] = mapping.get(cb.payload, "Не указано")
+    set_user_data(user_id, current)
+    
+    set_user_state(user_id, STATE_DESIGN_SCOPE)
+    kb = make_keyboard([
+        ("Полный с инженеркой", "design_scope_full"),
+        ("Для ремонта под ключ", "design_scope_turnkey"),
+        ("Технический (мин. визуал)", "design_scope_tech"),
+        BTN_BACK
+    ], per_row=1)
+    await cb.answer(text="Шаг 4. Что именно нужно разработать?", keyboard=kb)
+
+@bot.on_button_callback(lambda d: d.payload.startswith("design_scope_"))
+async def design_step_scope(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    mapping = {
+        "design_scope_full": "Полный дизайн-проект с инженерными системами",
+        "design_scope_turnkey": "Дизайн и инженерный проект для ремонта под ключ",
+        "design_scope_tech": "Технический проект с минимальной визуализацией"
+    }
+    current = get_user_data(user_id)
+    current["design_scope"] = mapping.get(cb.payload, "Не указано")
+    set_user_data(user_id, current)
+    
+    set_user_state(user_id, STATE_DESIGN_CONTACT)
+    kb = make_keyboard([
+        ("MAX", "design_contact_max"),
+        ("Telegram", "design_contact_tg"),
+        ("WhatsApp", "design_contact_wa"),
+        ("Позвоните", "design_contact_call"),
+        BTN_BACK
+    ], per_row=2)
+    await cb.answer(text="Отлично! Куда вам удобнее получить расчет дизайн-проекта?", keyboard=kb)
+
+@bot.on_button_callback(lambda d: d.payload.startswith("design_contact_"))
+async def design_step_contact(cb: aiomax.Callback):
+    user_id = cb.user.user_id
+    update_user_activity(user_id)
+    method_map = {
+        "design_contact_max": "MAX", 
+        "design_contact_tg": "Telegram", 
+        "design_contact_wa": "WhatsApp", 
+        "design_contact_call": "Звонок"
+    }
+    current = get_user_data(user_id)
+    current["contact_method"] = method_map.get(cb.payload, "Не указан")
+    set_user_data(user_id, current)
+    
+    set_user_state(user_id, STATE_DESIGN_PHONE)
+    await cb.answer(
+        text="Оставьте ваш номер телефона в формате **79999999999**, чтобы менеджер связался с вами 👇",
+        keyboard=make_keyboard([BTN_BACK], per_row=1)
+    )
 
 # ============================================================
 # Банк текстов (Полезные советы)
@@ -427,14 +624,7 @@ async def rooms_done(cb: aiomax.Callback):
     
     room = rooms_list[0]
     kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
-    await cb.answer(
-        text=(
-            f"Шаг 3. Какая площадь у комнаты **{room}**? (в м²)\n\n"
-            "Пожалуйста, напишите число (например, 15) "
-            "или выберите «Не знаю» 👇"
-        ),
-        keyboard=kb
-    )
+    await cb.answer(text=f"Шаг 3. Какая площадь у комнаты **{room}**? (в м²)", keyboard=kb)
 
 @bot.on_button_callback("area_unknown")
 async def step_area_unknown(cb: aiomax.Callback):
@@ -455,14 +645,7 @@ async def step_area_unknown(cb: aiomax.Callback):
     if current["rooms_to_process"]:
         next_room = current["rooms_to_process"][0]
         kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
-        await cb.answer(
-            text=(
-                f"Какая площадь у комнаты **{next_room}**? (в м²)\n\n"
-                "Пожалуйста, напишите число (например, 15) "
-                "или выберите «Не знаю» 👇"
-            ),
-            keyboard=kb
-        )
+        await cb.answer(text=f"Какая площадь у комнаты **{next_room}**? (в м²)", keyboard=kb)
     else:
         set_user_state(user_id, STATE_CEILING)
         kb = make_keyboard([
@@ -726,17 +909,8 @@ async def handle_text(message: aiomax.Message):
     text_lower = text.lower()
     
     # 1. Возврат в меню (по тексту)
-    if any(word in text_lower for word in ["верни", "меню", "назад в меню", "главное меню", "где меню"]):
+    if any(word in text_lower for word in ["верни", "меню", "назад в меню", "главное меню"]):
         clear_user(user_id)
-        await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
-        return
-
-    # Первое сообщение без активного сценария — показываем меню,
-    # не запускаем расчёт и не отправляем текст в GigaChat.
-    current = fsm_states.get(user_id, {})
-    if state is None and not current.get("greeted"):
-        current["greeted"] = True
-        fsm_states[user_id] = current
         await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
         return
 
@@ -753,7 +927,46 @@ async def handle_text(message: aiomax.Message):
         await message.reply("Шаг 1. Где нужно сделать ремонт?", keyboard=kb)
         return
 
-    # --- Ввод площади для конкретной комнаты ---
+    # --- НОВОЕ: Ввод площади для ДИЗАЙН-ПРОЕКТА ---
+    if state == STATE_DESIGN_AREA:
+        area_match = re.search(r"\d+", text)
+        if area_match:
+            current = get_user_data(user_id)
+            current["design_area"] = area_match.group()
+            set_user_data(user_id, current)
+            
+            set_user_state(user_id, STATE_DESIGN_CONDITION)
+            kb = make_keyboard([
+                ("Без отделки", "design_cond_none"),
+                ("Черновая отделка", "design_cond_rough"),
+                ("Чистовая отделка", "design_cond_fine"),
+                ("Требуется реконструкция", "design_cond_recon"),
+                BTN_BACK
+            ], per_row=2)
+            await message.reply("Шаг 3. В каком состоянии сейчас помещение?", keyboard=kb)
+        else:
+            await message.reply("Пожалуйста, напишите число (например, 45) 👇")
+        return
+
+    # --- НОВОЕ: Ввод телефона для ДИЗАЙН-ПРОЕКТА ---
+    if state == STATE_DESIGN_PHONE:
+        phone_clean = re.sub(r"\D", "", text)
+        if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
+            if phone_clean.startswith("8"):
+                phone_clean = "7" + phone_clean[1:]
+            
+            current = get_user_data(user_id)
+            current["phone"] = phone_clean
+            set_user_data(user_id, current)
+            await finalize_design_lead(message, user_id)
+        else:
+            await message.reply(
+                "Не удалось распознать номер. Введите в формате: **79999999999**",
+                keyboard=make_keyboard([BTN_BACK], per_row=1)
+            )
+        return
+
+    # --- Ввод площади для конкретной комнаты (Ремонт) ---
     if state == STATE_ROOM_AREA:
         area_match = re.search(r"\d+", text)
         if area_match:
@@ -771,14 +984,7 @@ async def handle_text(message: aiomax.Message):
             if current["rooms_to_process"]:
                 next_room = current["rooms_to_process"][0]
                 kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
-                await message.reply(
-                    text=(
-                        f"Какая площадь у комнаты **{next_room}**? (в м²)\n\n"
-                        "Пожалуйста, напишите число (например, 15) "
-                        "или выберите «Не знаю» 👇"
-                    ),
-                    keyboard=kb
-                )
+                await message.reply(f"Какая площадь у комнаты **{next_room}**? (в м²)", keyboard=kb)
             else:
                 set_user_state(user_id, STATE_CEILING)
                 kb = make_keyboard([
@@ -790,25 +996,14 @@ async def handle_text(message: aiomax.Message):
                 ], per_row=2)
                 await message.reply("Шаг 4. Какая высота потолков в помещении?", keyboard=kb)
         else:
-            current = get_user_data(user_id)
-            rooms_to_process = current.get("rooms_to_process", [])
-            room = rooms_to_process[0] if rooms_to_process else "комната"
             kb = make_keyboard([BTN_UNKNOWN_AREA, BTN_BACK], per_row=1)
-            await message.reply(
-                text=(
-                    f"Шаг 3. Какая площадь у комнаты **{room}**? (в м²)\n\n"
-                    "Пожалуйста, напишите число (например, 15) "
-                    "или выберите «Не знаю» 👇"
-                ),
-                keyboard=kb
-            )
+            await message.reply("Пожалуйста, напишите число (например, 15) или выберите «Не знаю» 👇", keyboard=kb)
         return
 
-    # --- Ввод телефона (после выбора способа связи) ---
+    # --- Ввод телефона (после выбора способа связи) (Ремонт) ---
     if state == STATE_PHONE:
         phone_clean = re.sub(r"\D", "", text)
         
-        # Строгая проверка: только 11 цифр (телефон)
         if len(phone_clean) == 11 and (phone_clean.startswith("7") or phone_clean.startswith("8")):
             if phone_clean.startswith("8"):
                 phone_clean = "7" + phone_clean[1:]
@@ -819,7 +1014,6 @@ async def handle_text(message: aiomax.Message):
             await finalize_lead(message, user_id)
             
         else:
-            # Если это не номер — просим ввести заново
             await message.reply(
                 "Не удалось распознать номер телефона. "
                 "Пожалуйста, введите его в формате: **79999999999** (11 цифр).",
@@ -829,7 +1023,14 @@ async def handle_text(message: aiomax.Message):
 
     # --- Свободный вопрос (GigaChat или Фото) ---
     if state is None:
-        # Проверяем, не просит ли клиент фото
+        current = fsm_states.get(user_id, {})
+        
+        if not current.get("greeted"):
+            current["greeted"] = True
+            fsm_states[user_id] = current
+            await message.reply(WELCOME_TEXT, keyboard=WELCOME_KB)
+            return
+
         photo_keywords = ["фото", "покажи", "пример", "работ", "портфолио", "как выглядит", "визуал"]
         text_lower = text.lower()
         
@@ -862,7 +1063,6 @@ async def handle_text(message: aiomax.Message):
                 )
             return
 
-        # Если фото не просят — отвечаем через GigaChat
         try:
             answer = await ask_gigachat_ultra(text)
             await message.reply(answer)
@@ -872,7 +1072,12 @@ async def handle_text(message: aiomax.Message):
         return
 
     # --- Если клиент в середине квиза, но пишет текст ---
-    button_states = [STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING]
+    # НОВОЕ: Добавлены состояния дизайна в список
+    button_states = [
+        STATE_HOUSING, STATE_ROOMS_MULTI, STATE_REPAIR, STATE_TIMELINE, 
+        STATE_CONFIRM, STATE_BUDGET, STATE_CONTACT_METHOD, STATE_CEILING,
+        STATE_DESIGN_OBJECT, STATE_DESIGN_CONDITION, STATE_DESIGN_SCOPE, STATE_DESIGN_CONTACT
+    ]
     if state in button_states:
         if state == STATE_HOUSING:
             kb = make_keyboard([
@@ -931,6 +1136,32 @@ async def handle_text(message: aiomax.Message):
                 BTN_PREV
             ], per_row=2)
         
+        # НОВОЕ: Кнопки для дизайн-проекта
+        elif state == STATE_DESIGN_OBJECT:
+            kb = make_keyboard([
+                ("Новостройка", "design_obj_new"), ("Вторичное жильё", "design_obj_secondary"),
+                ("Дом/таунхаус", "design_obj_house"), BTN_BACK
+            ], per_row=2)
+        elif state == STATE_DESIGN_CONDITION:
+            kb = make_keyboard([
+                ("Без отделки", "design_cond_none"), ("Черновая отделка", "design_cond_rough"),
+                ("Чистовая отделка", "design_cond_fine"), ("Требуется реконструкция", "design_cond_recon"),
+                BTN_BACK
+            ], per_row=2)
+        elif state == STATE_DESIGN_SCOPE:
+            kb = make_keyboard([
+                ("Полный с инженеркой", "design_scope_full"),
+                ("Для ремонта под ключ", "design_scope_turnkey"),
+                ("Технический (мин. визуал)", "design_scope_tech"),
+                BTN_BACK
+            ], per_row=1)
+        elif state == STATE_DESIGN_CONTACT:
+            kb = make_keyboard([
+                ("MAX", "design_contact_max"), ("Telegram", "design_contact_tg"),
+                ("WhatsApp", "design_contact_wa"), ("Позвоните", "design_contact_call"),
+                BTN_BACK
+            ], per_row=2)
+
         await message.reply("Пожалуйста, выберите один из вариантов на кнопках ниже 👇", keyboard=kb)
         return
 
@@ -991,8 +1222,57 @@ async def finalize_lead(message: aiomax.Message, user_id):
         ),
         keyboard=kb
     )
-    # Сбрасываем состояние, но НЕ флаг greeted, чтобы бот мог общаться
-    set_user_state(user_id, None)
+    
+    if user_id in fsm_states:
+        del fsm_states[user_id]
+
+
+# НОВОЕ: Функция финализации заявки на дизайн-проект
+async def finalize_design_lead(message: aiomax.Message, user_id):
+    data = get_user_data(user_id)
+    
+    admin_text = (
+        f"🎨 **НОВАЯ ЗАЯВКА НА ДИЗАЙН-ПРОЕКТ!**\n"
+        f"Способ связи: {data.get('contact_method', '—')}\n\n"
+        f"📞 Телефон: {data.get('phone', '—')}\n"
+        f"🏠 Объект: {data.get('design_object', '—')}\n"
+        f"📐 Площадь: {data.get('design_area', '—')} м²\n"
+        f"🛠 Состояние: {data.get('design_condition', '—')}\n"
+        f"📋 Что разработать: {data.get('design_scope', '—')}"
+    )
+    
+    try:
+        await bot.send_message(admin_text, user_id=ADMIN_ID)
+    except Exception as e:
+        print(f"Ошибка отправки администратору (дизайн): {e}")
+        
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # ВАЖНО: Здесь мы пишем "Дизайн-проект" в поле rooms, чтобы отличать в базе,
+    # а в repair_type пишем, что именно нужно разработать.
+    cursor_db.execute('''
+        INSERT INTO leads (date, user_id, phone, housing, rooms, area, ceiling, repair_type, timeline, budget)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (
+        current_time, user_id, data.get('phone', ''),
+        data.get('design_object', ''), 
+        "Дизайн-проект",
+        data.get('design_area', ''),
+        "", 
+        data.get('design_scope', ''),
+        data.get('design_condition', ''), 
+        "" 
+    ))
+    conn.commit()
+    
+    await message.reply(
+        text=DESIGN_FINAL_TEXT,
+        keyboard=make_keyboard([BTN_BACK], per_row=1)
+    )
+    
+    # Сбрасываем сессию, чтобы не срабатывал дожим
+    if user_id in fsm_states:
+        del fsm_states[user_id]
 
 # ============================================================
 # КОМАНДА /export
