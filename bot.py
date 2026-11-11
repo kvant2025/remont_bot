@@ -143,14 +143,22 @@ WELCOME_TEXT = (
     "Ответьте на пару вопросов и узнайте точную стоимость 👇"
 )
 
-WELCOME_KB = make_keyboard([
-    ("✅ Узнать стоимость", "start_quiz"),
-    ("🎨 Дизайн-проект", "design_start"), # НОВОЕ: Кнопка дизайн-проекта
-    ("📸 Портфолио", "portfolio"),
-    ("💬 Отзывы", "reviews"),
-    ("📞 Контакты", "contact"),
-    ("🔥 Полезные советы", "useful_tips"),
-], per_row=2)
+# Создаем клавиатуру вручную, чтобы смешать стили
+WELCOME_KB = aiomax.buttons.KeyboardBuilder()
+
+# Первые две кнопки — по одной в ряд (на всю ширину)
+WELCOME_KB.row(aiomax.buttons.CallbackButton("✅ Узнать стоимость ремонта", "start_quiz"))
+WELCOME_KB.row(aiomax.buttons.CallbackButton("🎨 Заказать дизайн-проект", "design_start"))
+
+# Остальные кнопки — по две в ряд
+WELCOME_KB.row(
+    aiomax.buttons.CallbackButton("📸 Портфолио", "portfolio"),
+    aiomax.buttons.CallbackButton("💬 Отзывы", "reviews")
+)
+WELCOME_KB.row(
+    aiomax.buttons.CallbackButton("📞 Контакты", "contact"),
+    aiomax.buttons.CallbackButton("🔥 Полезные советы", "useful_tips")
+)
 
 BTN_BACK = ("🏠 В главное меню", "back_to_menu")
 BTN_PREV = ("⬅️ Назад", "go_back")
